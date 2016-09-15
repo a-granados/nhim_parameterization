@@ -19,21 +19,12 @@ using std::endl;
 //using std::setw;
 
 double tzeta=6e-5;
-//double tzeta=0.;
-//double tzeta=1e-2;
-//double tXi=0.1;
-//double tXi=5e-1;
-//double tXi=1e-2;
-//double tXi=1e-4;
 double tXi=0;
 double tF=1.;
 double tk=1.;
-//double k=500;
 double beta=1.;
 double pi=4.*atan(1.);
-double omega=2.1;//*2/3;
-//double omega=2.*pi/7;
-//double lambda=0.01;
+double omega=2;
 double lambda=2e-1;
 double eps=0;
 
@@ -52,7 +43,6 @@ double csimend=1.2;
 double thetasimini=0;
 double thetasimend=1;
 
-//int ndim=5;
 int count;
 
 const gsl_interp2d_type *T=gsl_interp2d_bicubic;
@@ -60,7 +50,7 @@ const gsl_interp2d_type *T=gsl_interp2d_bicubic;
 #pragma omp threadprivate(tol)
 
 
-#include "../piezo_library.c"
+#include "piezo_library.c"
 
 using namespace std;
 
