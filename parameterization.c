@@ -117,11 +117,7 @@ int main (){
     thetac[1][i]=cini+double(i)*(cend-cini)/double((Nc-1.));
   }
 
-  //Functions that need to be evaluated outiside the grid values
-  //F, K, P, zeta^u, zeta^s, LambdaS
-  //F is given, the others need to be interpolated
-  //invP is a 5x5 matrix whose components are 2dsplines
-  //
+ //Variables ending with "vals" contain grid values. Others contain interpolation objects.
   //P:
   double **Pvals=new double*[25];
   for (i=0;i<25;i++){
@@ -188,8 +184,8 @@ int main (){
   //ini_functions(thetac,LambdaLvals,LambdaSvals,LambdaUvals,Kvals,Pvals,invPvals,fvals);
   ini_functions2(thetac,LambdaLvals,LambdaSvals,LambdaUvals,Kvals,Pvals,invPvals,fvals,uvvals,alphavals,dalphavals);
   cout<<"Iterating F at K(theta,c).."<<endl;
-  //iterate_FK(thetac,Kvals);
-  //iterate_FK2(thetac,Kvals);
+  //iterate_FK(thetac,Kvals);//Iterates F at K evaluated at different values of c for fixed theta
+  //iterate_FK2(thetac,Kvals);//Same but for K evaluated at a grid in theta\times c
   cout <<"Done."<<endl;
 
   //cout<<"Now computing the inverse..."<<endl;
