@@ -3415,13 +3415,12 @@ double one_step_of_Newton(double **thetac,double **fvals,double **invfvals, doub
   filename="invPvals";
   write_data_in_file(thetac[0],thetac[1],invPvals,25,filename);
 
-  //Shotting along tangent directions to the stable and unstable
-  //manifolds:
-  cout<<"Shotting along stable and unstable directions..."<<endl;
+  //Computation of global stable and unstable manifolds:
   if (count>1){
+    cout<<"Computing stable and unstable directions..."<<endl;
     shot_manifolds2(thetac,fvals,f,invfvals,invf,Pvals,Kvals);
+    cout <<"Done."<<endl;
   }
-  cout <<"Done."<<endl;
 
   maxerrE=0.;
   maxerrEredN=0.;
@@ -3824,9 +3823,15 @@ void compute_DepsF(double **thetac,double **Kvals,double **EDepsFvals){
 }
 
 void shot_manifolds2(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals){
-  //Here we get points at the tangent spaces to W^s and W^u for
+  //This routine obtains "the" stable and unstable manifolds of the NHIM.
+  //We first obtain domains at the tangent spaces to W^s and W^u for
   //serveral values of theta and c. We compute a few iterations of
-  //these values.
+  //these values to generate manifolds close to the real stable and unstable
+  //manifolds.
+  //Each iteration of the domain is later resampled to guarantee that points do
+  //not split too much and we obtain a more homogeneous sampling.
+  //All points are later saved in files in a proper format to plot the manifolds
+  //in matlab using the plot_manifolds.m script.
   int i,j,k,l,currentindex,m;
   double thetaini=0;
   double thetaend=1;
@@ -3835,6 +3840,9 @@ void shot_manifolds2(double **thetac,double **fvals,gsl_interp2d **f,double **in
   int numpointsstable=1;//Number of points to generate the tangent space to the stable manifld (2d)
   int numpointsdomain=100;//Number of points for the parameters parameterizing the manifolds
   int numit=20;
+  //This is for resampling criterion:
+  int maxnewpoints=20000;//Maximum number of new points in each segment.
+  double maxdist=1e-2;
   int numpoints=numpointstheta*numpointsc;
   int *finaliter=new int[numpoints*(numpointsstable+1)*numpointsdomain];
   int *finaliterstable=new int[numpoints*numpointsstable*numpointsdomain];
@@ -3869,9 +3877,11 @@ void shot_manifolds2(double **thetac,double **fvals,gsl_interp2d **f,double **in
       gsl_interp2d_init(K[i],thetac[0],thetac[1],Kvals[i],Ntheta,Nc);
     }
   }
-
-  #pragma omp parallel for private(i,j,k,l,currentindex)
+  
+  cout <<"  Iterating domains in the stable and unstable tangent spaces."<<endl;
+  //#pragma omp parallel for private(i,j,k,l,currentindex)
   for (m=0;m<numpointstheta;m++){
+    #pragma omp parallel for private(j,k,l,currentindex)
     for (i=0;i<numpointsc;i++){
       gsl_interp_accel *thetaaac=gsl_interp_accel_alloc();
       gsl_interp_accel *caac=gsl_interp_accel_alloc();
@@ -3892,9 +3902,9 @@ void shot_manifolds2(double **thetac,double **fvals,gsl_interp2d **f,double **in
       for (j=2;j<5;j++){
 	bpoint[j]=gsl_interp2d_eval_extrap(K[j],thetac[0],thetac[1],Kvals[j],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
       }
-      //--------------------------------------------
-      //Stable manifold:-----------------------------
-      //--------------------------------------------
+      //------------------------------------------------------------------------------------------
+      //-------------Iteration of the tangent space to the stable manifold:-----------------------
+      //------------------------------------------------------------------------------------------
       //Vectors generating the plane tangent to the stable manifold at bpoint:
       for (k=0;k<5;k++){
 	vs1[k]=gsl_interp2d_eval_extrap(P[3*k],thetac[0],thetac[1],Pvals[2+k*5],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
@@ -3952,9 +3962,9 @@ void shot_manifolds2(double **thetac,double **fvals,gsl_interp2d **f,double **in
 	}
       }
 
-      //-----------------------------------------------
-      //-----------Unstable manifold:-------------------
-      //------------------------------------------------
+      //------------------------------------------------------------------------------------------
+      //-------------Iteration of the tangent space to the unstable manifold:-----------------------
+      //------------------------------------------------------------------------------------------
       //We shot an initial condition in the direction tangent to the unstable
       //manifold:
       modvu=0.;
@@ -3969,7 +3979,7 @@ void shot_manifolds2(double **thetac,double **fvals,gsl_interp2d **f,double **in
 	double *Fthetax2=new double[5];
 	for (j=0;j<5;j++){
 	  iteratesunstable[currentindex+l][0][j]=bpoint[j];
-	  iteratesunstable[currentindex+l][0][j]+=double(l)/double(numpointsdomain)*(deltaend-deltaini)*vu[j]/modvu;
+	  iteratesunstable[currentindex+l][0][j]+=double(l+1)/double(numpointsdomain)*(deltaend-deltaini)*vu[j]/modvu;
 	}
 	j=1;
 	while(j<numit && fabs(iteratesunstable[currentindex+l][j-1][1])<5 &&  fabs(iteratesunstable[currentindex+l][j-1][2])<5){
@@ -3999,6 +4009,7 @@ void shot_manifolds2(double **thetac,double **fvals,gsl_interp2d **f,double **in
       delete[] vtmp;
     }
   }
+  cout<<"  Done."<<endl;
 
   //Writing in files:
   string filename;
@@ -4032,16 +4043,422 @@ void shot_manifolds2(double **thetac,double **fvals,gsl_interp2d **f,double **in
   ofstream funstable;
   funstable.precision(10);
   funstable.open(filename.c_str());
-  for (i=0;i<numpointsc*numpointstheta*numpointsdomain;i++){
-    for (j=0;j<finaliterunstable[i];j++){
-      funstable<<i<<" "<<j<<" ";
-      for (k=0;k<5;k++){
-	funstable<<iteratesunstable[i][j][k]<<" ";
+  //for (i=0;i<numpointsc*numpointstheta*numpointsdomain;i++){
+  for (i=0;i<numpoints;i++){
+    for (m=0;m<numpointsdomain;m++){
+      currentindex=i*numpointsdomain+m;
+      for (j=0;j<finaliterunstable[currentindex];j++){
+	funstable<<i<<" "<<m<<" "<<j<<" ";
+	for (k=0;k<5;k++){
+	  funstable<<iteratesunstable[currentindex][j][k]<<" ";
+	}
+	funstable<<endl;
       }
-      funstable<<endl;
     }
   }
   funstable.close();
+
+  //----------------------------------------------------------------------
+  //-------------------RESAMPLING OF MANIFOLDS----------------------------
+  //----------------------------------------------------------------------
+
+  //We now resample those segments whose vertices are too far away one
+  //another. When this occurs, we estimate the number of points we
+  //need to add to such that the distance between the new points is
+  //the desired.
+  //The number of resamples is decided checking only the leaf
+  //c=csimini and theta=thetaini. Then, everything is reapeated for
+  //the other values of theta and c.
+  double curdist;
+
+  //--------------------------------------------------------------------------------
+  //------------------------Resampling the unstable manifold------------------------
+  //--------------------------------------------------------------------------------
+  cout <<"  Resampling the unstable manifold."<<endl;
+  //New points will be contained here:
+  int numresamples;
+  double ****extraunstable=new double***[(numpointsdomain-1)*numpoints];
+  for (i=0;i<(numpointsdomain-1)*numpoints;i++){
+    extraunstable[i]=new double**[numit];
+    for (j=0;j<numit;j++){
+      extraunstable[i][j]=new double*[maxnewpoints];
+      for (k=0;k<maxnewpoints;k++){
+	extraunstable[i][j][k]=new double[5];
+      }
+    }
+  }
+  //This contains the number of resamples added at each point segment
+  int **numnewpointsunstable=new int*[numpointsdomain-1];
+  for (i=0;i<numpointsdomain-1;i++){
+    numnewpointsunstable[i]=new int[numit];
+    for (j=0;j<numit;j++){
+      numnewpointsunstable[i][j]=0;
+    }
+  }
+  for (k=0;k<numit;k++){
+    for (j=0;j<numpointsdomain-1;j++){
+      double modvu;
+      double *vu=new double[5];
+      curdist=pow(iteratesunstable[j+1][k][2]-iteratesunstable[j][k][2],2.);
+      curdist+=pow(iteratesunstable[j+1][k][3]-iteratesunstable[j][k][3],2.);
+      curdist=sqrt(curdist);
+      if (curdist>maxdist){
+	numnewpointsunstable[j][k]=int(curdist/maxdist)-1;
+	if (numnewpointsunstable[j][k]>maxnewpoints){
+	  numnewpointsunstable[j][k]=maxnewpoints;
+	}
+	numresamples=1;
+	while(curdist>maxdist && numresamples*numnewpointsunstable[j][k]<maxnewpoints){
+	  numnewpointsunstable[j][k]=numresamples*numnewpointsunstable[j][k];
+	  modvu=0.;
+	  for (i=0;i<5;i++){
+	    vu[i]=iteratesunstable[j+1][0][i]-iteratesunstable[j][0][i];
+	    modvu+=vu[i]*vu[i];
+	  }
+	  modvu=sqrt(modvu);
+	  curdist=modvu;
+	  #pragma omp parallel for private(i)
+	  for (l=0;l<numnewpointsunstable[j][k];l++){
+	    double thetatmp,ctmp,xtmp,ytmp,wtmp,newinc;
+	    newinc=double(l+1)*curdist/double(numnewpointsunstable[j][k]+1);
+	    thetatmp=iteratesunstable[j][0][0]+newinc*vu[0]/modvu;
+	    ctmp=iteratesunstable[j][0][1]+newinc*vu[1]/modvu;
+	    xtmp=iteratesunstable[j][0][2]+newinc*vu[2]/modvu;
+	    ytmp=iteratesunstable[j][0][3]+newinc*vu[3]/modvu;
+	    wtmp=iteratesunstable[j][0][4]+newinc*vu[4]/modvu;
+	    extraunstable[j][k][l][0]=thetatmp;
+	    extraunstable[j][k][l][1]=ctmp;
+	    extraunstable[j][k][l][2]=xtmp;
+	    extraunstable[j][k][l][3]=ytmp;
+	    extraunstable[j][k][l][4]=wtmp;
+	    for (i=0;i<k;i++){
+	      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,extraunstable[j][k][l]);
+	      thetatmp=extraunstable[j][k][l][0];
+	      ctmp=extraunstable[j][k][l][1];
+	      xtmp=extraunstable[j][k][l][2];
+	      ytmp=extraunstable[j][k][l][3];
+	      wtmp=extraunstable[j][k][l][4];
+	    }
+	  }
+	  //We now check that all distances between consecutive new poins are below maxdist:
+	  curdist=pow(extraunstable[j][k][1][2]-extraunstable[j][k][0][2],2.);
+	  curdist+=pow(extraunstable[j][k][1][3]-extraunstable[j][k][0][3],2.);
+	  curdist=sqrt(curdist);
+	  i=1;
+	  while (curdist<=maxdist && i<(numnewpointsunstable[j][k]-1)){
+	    curdist=pow(extraunstable[j][k][i+1][2]-extraunstable[j][k][i][2],2.);
+	    curdist+=pow(extraunstable[j][k][i+1][3]-extraunstable[j][k][i][3],2.);
+	    curdist=sqrt(curdist);
+	    i++;
+	  }
+	  numresamples++;
+	}
+
+	//We add numnewpointsunstable extra points
+	#pragma omp parallel for private(l,i,curdist)
+	for (m=1;m<numpointsc;m++){
+	  double *bpoint=new double[5];
+	  double modvu;
+	  double *vu=new double[5];
+	  bpoint[0]=thetaini;
+	  bpoint[1]=csimini+double(m)*(csimend-csimini)/double(numpointsc);
+	  gsl_interp_accel *thetaaac=gsl_interp_accel_alloc();
+	  gsl_interp_accel *caac=gsl_interp_accel_alloc();
+	  for (i=2;i<5;i++){
+	    bpoint[i]=gsl_interp2d_eval_extrap(K[i],thetac[0],thetac[1],Kvals[i],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
+	  }
+	  modvu=0.;
+	  for (i=0;i<5;i++){
+	    vu[i]=gsl_interp2d_eval_extrap(P[2+3*i],thetac[0],thetac[1],Pvals[4+i*5],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
+	    modvu+=vu[i]*vu[i];
+	  }
+	  modvu=sqrt(modvu);
+	  curdist=pow(iteratesunstable[m*numpointsdomain+j+1][0][2]-iteratesunstable[m*numpointsdomain+j][0][2],2.);
+	  curdist+=pow(iteratesunstable[m*numpointsdomain+j+1][0][3]-iteratesunstable[m*numpointsdomain+j][0][3],2.);
+	  curdist=sqrt(curdist);
+	  for (l=0;l<numnewpointsunstable[j][k];l++){
+	    double thetatmp,ctmp,xtmp,ytmp,wtmp,newinc;
+	    newinc=double(j+1)*(deltaend-deltaini)/double(numpointsdomain)+double(l+1)*curdist/double(numnewpointsunstable[j][k]+1);
+	    thetatmp=bpoint[0]+newinc*vu[0]/modvu;
+	    ctmp=bpoint[1]+newinc*vu[1]/modvu;
+	    xtmp=bpoint[2]+newinc*vu[2]/modvu;
+	    ytmp=bpoint[3]+newinc*vu[3]/modvu;
+	    wtmp=bpoint[4]+newinc*vu[4]/modvu;
+	    extraunstable[m*(numpointsdomain-1)+j][k][l][0]=thetatmp;
+	    extraunstable[m*(numpointsdomain-1)+j][k][l][1]=ctmp;
+	    extraunstable[m*(numpointsdomain-1)+j][k][l][2]=xtmp;
+	    extraunstable[m*(numpointsdomain-1)+j][k][l][3]=ytmp;
+	    extraunstable[m*(numpointsdomain-1)+j][k][l][4]=wtmp;
+	    for (i=0;i<k;i++){
+	      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,extraunstable[m*(numpointsdomain-1)+j][k][l]);
+	      thetatmp=extraunstable[m*(numpointsdomain-1)+j][k][l][0];
+	      ctmp=extraunstable[m*(numpointsdomain-1)+j][k][l][1];
+	      xtmp=extraunstable[m*(numpointsdomain-1)+j][k][l][2];
+	      ytmp=extraunstable[m*(numpointsdomain-1)+j][k][l][3];
+	      wtmp=extraunstable[m*(numpointsdomain-1)+j][k][l][4];
+	    }
+	  }
+	  gsl_interp_accel_free(thetaaac);
+	  gsl_interp_accel_free(caac);
+	  delete[] vu;
+	  delete[] bpoint;
+	}
+      }
+      delete[] vu;
+    }
+  }
+  cout <<"  Done."<<endl;
+
+  //For Matlab plotting:
+  for (k=0;k<numit;k++){
+    s.str("");
+    s.clear();
+    s<<"xfile-unstable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream xfile;
+    xfile.precision(10);
+    xfile.open(filename.c_str());
+    s.str("");
+    s.clear();
+    s<<"yfile-unstable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream yfile;
+    yfile.precision(10);
+    yfile.open(filename.c_str());
+    s.str("");
+    s.clear();
+    s<<"cfile-unstable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream cfile;
+    cfile.precision(10);
+    cfile.open(filename.c_str());
+    for (i=0;i<numpoints;i++){
+      for (j=0;j<numpointsdomain;j++){
+	xfile<<iteratesunstable[i*numpointsdomain+j][k][2]<<" ";
+	yfile<<iteratesunstable[i*numpointsdomain+j][k][3]<<" ";
+	cfile<<iteratesunstable[i*numpointsdomain+j][k][1]<<" ";
+	if (j<numpointsdomain-1){
+	  for (l=0;l<numnewpointsunstable[j][k];l++){
+	    xfile<<extraunstable[i*(numpointsdomain-1)+j][k][l][2]<<" ";
+	    yfile<<extraunstable[i*(numpointsdomain-1)+j][k][l][3]<<" ";
+	    cfile<<extraunstable[i*(numpointsdomain-1)+j][k][l][1]<<" ";
+	  }
+	}
+      }
+      xfile<<endl;
+      yfile<<endl;
+      cfile<<endl;
+    }
+    xfile.close();
+    yfile.close();
+    cfile.close();
+  }
+
+  for (i=0;i<(numpointsdomain-1)*numpoints;i++){
+    for (j=0;j<numit;j++){
+      for (l=0;l<maxnewpoints;l++){
+	delete[] extraunstable[i][j][l];
+      }
+      delete[] extraunstable[i][j];
+    }
+    delete[] extraunstable[i];
+  }
+  delete[] extraunstable;
+  for (i=0;i<numpointsdomain-1;i++){
+    delete[] numnewpointsunstable[i];
+  }
+  delete[] numnewpointsunstable;
+
+
+  //------------------------------------------------------------------------------
+  //------------------------Resampling the stable manifold------------------------
+  //------------------------------------------------------------------------------
+  //For now this only supports the case numpointsstable=1: shotting along vs1.
+  cout<<"  Resampling the Stable manifold"<<endl;
+  //New points will be contained here:
+  double ****extrastable=new double***[(numpointsdomain-1)*numpoints];
+  for (i=0;i<(numpointsdomain-1)*numpoints;i++){
+    extrastable[i]=new double**[numit];
+    for (j=0;j<numit;j++){
+      extrastable[i][j]=new double*[maxnewpoints];
+      for (k=0;k<maxnewpoints;k++){
+	extrastable[i][j][k]=new double[5];
+      }
+    }
+  }
+  //This contains the number of resamples added at each point segment
+  int **numnewpointsstable=new int*[numpointsdomain-1];
+  for (i=0;i<numpointsdomain-1;i++){
+    numnewpointsstable[i]=new int[numit];
+    for (j=0;j<numit;j++){
+      numnewpointsstable[i][j]=0;
+    }
+  }
+  for (k=0;k<numit;k++){
+    for (j=0;j<numpointsdomain-1;j++){
+      curdist=pow(iteratesstable[j+1][k][2]-iteratesstable[j][k][2],2.);
+      curdist+=pow(iteratesstable[j+1][k][3]-iteratesstable[j][k][3],2.);
+      curdist=sqrt(curdist);
+      double modvs1;
+      double *vs1=new double[5];
+      if (curdist>maxdist){//We resample
+	//We first compute the number of new points.
+	numnewpointsstable[j][k]=int(curdist/maxdist)-1;//first estimate
+	if (numnewpointsstable[j][k]>maxnewpoints){
+	  numnewpointsstable[j][k]=maxnewpoints;
+	}
+	numresamples=1;
+	while(curdist>maxdist && numresamples*numnewpointsstable[j][k]<maxnewpoints){
+	  numnewpointsstable[j][k]=numresamples*numnewpointsstable[j][k];
+	  modvs1=0.;
+	  for (i=0;i<5;i++){
+	    vs1[i]=iteratesstable[j+1][0][i]-iteratesstable[j][0][i];
+	    modvs1+=vs1[i]*vs1[i];
+	  }
+	  modvs1=sqrt(modvs1);
+	  curdist=modvs1;
+	  #pragma omp parallel for private(i)
+	  for (l=0;l<numnewpointsstable[j][k];l++){
+	    double thetatmp,ctmp,xtmp,ytmp,wtmp,newinc;
+	    newinc=double(l+1)*curdist/double(numnewpointsstable[j][k]+1);
+	    thetatmp=iteratesstable[j][0][0]+newinc*vs1[0]/modvs1;
+	    ctmp=iteratesstable[j][0][1]+newinc*vs1[1]/modvs1;
+	    xtmp=iteratesstable[j][0][2]+newinc*vs1[2]/modvs1;
+	    ytmp=iteratesstable[j][0][3]+newinc*vs1[3]/modvs1;
+	    wtmp=iteratesstable[j][0][4]+newinc*vs1[4]/modvs1;
+	    extrastable[j][k][l][0]=thetatmp;
+	    extrastable[j][k][l][1]=ctmp;
+	    extrastable[j][k][l][2]=xtmp;
+	    extrastable[j][k][l][3]=ytmp;
+	    extrastable[j][k][l][4]=wtmp;
+	    for (i=0;i<k;i++){
+	      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,extrastable[j][k][l]);
+	      thetatmp=extrastable[j][k][l][0];
+	      ctmp=extrastable[j][k][l][1];
+	      xtmp=extrastable[j][k][l][2];
+	      ytmp=extrastable[j][k][l][3];
+	      wtmp=extrastable[j][k][l][4];
+	    }
+	  }
+	  //We now check that all distances between consecutive new poins are below maxdist:
+	  curdist=pow(extrastable[j][k][1][2]-extrastable[j][k][0][2],2.);
+	  curdist+=pow(extrastable[j][k][1][3]-extrastable[j][k][0][3],2.);
+	  curdist=sqrt(curdist);
+	  i=1;
+	  while (curdist<=maxdist && i<(numnewpointsstable[j][k]-1)){
+	    curdist=pow(extrastable[j][k][i+1][2]-extrastable[j][k][i][2],2.);
+	    curdist+=pow(extrastable[j][k][i+1][3]-extrastable[j][k][i][3],2.);
+	    curdist=sqrt(curdist);
+	    i++;
+	  }
+	  numresamples++;
+	}
+	//We add numnewpointsstable extra points
+	#pragma omp parallel for private(l,i,curdist)
+	for (m=1;m<numpointsc;m++){
+	  double *bpoint=new double[5];
+	  double modvs1;
+	  double *vs1=new double[5];
+	  bpoint[0]=thetaini;
+	  bpoint[1]=csimini+double(m)*(csimend-csimini)/double(numpointsc);
+	  modvs1=0.;
+	  for (i=0;i<5;i++){
+	    vs1[i]=iteratesstable[m*numpointsdomain+j+1][0][i]-iteratesstable[m*numpointsdomain+j][0][i];
+	    modvs1+=vs1[i]*vs1[i];
+	  }
+	  modvs1=sqrt(modvs1);
+	  curdist=modvs1;
+	  for (l=0;l<numnewpointsstable[j][k];l++){
+	    double thetatmp,ctmp,xtmp,ytmp,wtmp,newinc;
+	    newinc=double(l+1)*curdist/double(numnewpointsstable[j][k]+1);
+	    thetatmp=iteratesstable[m*numpointsdomain+j][0][0]+newinc*vs1[0]/modvs1;
+	    ctmp=iteratesstable[m*numpointsdomain+j][0][1]+newinc*vs1[1]/modvs1;
+	    xtmp=iteratesstable[m*numpointsdomain+j][0][2]+newinc*vs1[2]/modvs1;
+	    ytmp=iteratesstable[m*numpointsdomain+j][0][3]+newinc*vs1[3]/modvs1;
+	    wtmp=iteratesstable[m*numpointsdomain+j][0][4]+newinc*vs1[4]/modvs1;
+	    extrastable[m*(numpointsdomain-1)+j][k][l][0]=thetatmp;
+	    extrastable[m*(numpointsdomain-1)+j][k][l][1]=ctmp;
+	    extrastable[m*(numpointsdomain-1)+j][k][l][2]=xtmp;
+	    extrastable[m*(numpointsdomain-1)+j][k][l][3]=ytmp;
+	    extrastable[m*(numpointsdomain-1)+j][k][l][4]=wtmp;
+	    for (i=0;i<k;i++){
+	      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,extrastable[m*(numpointsdomain-1)+j][k][l]);
+	      thetatmp=extrastable[m*(numpointsdomain-1)+j][k][l][0];
+	      ctmp=extrastable[m*(numpointsdomain-1)+j][k][l][1];
+	      xtmp=extrastable[m*(numpointsdomain-1)+j][k][l][2];
+	      ytmp=extrastable[m*(numpointsdomain-1)+j][k][l][3];
+	      wtmp=extrastable[m*(numpointsdomain-1)+j][k][l][4];
+	    }
+	  }
+	  delete[] vs1;
+	  delete[] bpoint;
+	}
+      }
+      delete[] vs1;
+    }
+  }
+  cout <<"  Done."<<endl;
+
+  //For Matlab plotting:
+  for (k=0;k<numit;k++){
+    s.str("");
+    s.clear();
+    s<<"xfile-stable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream xfile;
+    xfile.precision(10);
+    xfile.open(filename.c_str());
+    s.str("");
+    s.clear();
+    s<<"yfile-stable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream yfile;
+    yfile.precision(10);
+    yfile.open(filename.c_str());
+    s.str("");
+    s.clear();
+    s<<"cfile-stable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream cfile;
+    cfile.precision(10);
+    cfile.open(filename.c_str());
+    for (i=0;i<numpoints;i++){
+      for (j=0;j<numpointsdomain;j++){
+	xfile<<iteratesstable[i*numpointsdomain+j][k][2]<<" ";
+	yfile<<iteratesstable[i*numpointsdomain+j][k][3]<<" ";
+	cfile<<iteratesstable[i*numpointsdomain+j][k][1]<<" ";
+	if (j<numpointsdomain-1){
+	  for (l=0;l<numnewpointsstable[j][k];l++){
+	    xfile<<extrastable[i*(numpointsdomain-1)+j][k][l][2]<<" ";
+	    yfile<<extrastable[i*(numpointsdomain-1)+j][k][l][3]<<" ";
+	    cfile<<extrastable[i*(numpointsdomain-1)+j][k][l][1]<<" ";
+	  }
+	}
+      }
+      xfile<<endl;
+      yfile<<endl;
+      cfile<<endl;
+    }
+    xfile.close();
+    yfile.close();
+    cfile.close();
+  }
+
+  for (i=0;i<(numpointsdomain-1)*numpoints;i++){
+    for (j=0;j<numit;j++){
+      for (l=0;l<maxnewpoints;l++){
+	delete[] extrastable[i][j][l];
+      }
+      delete[] extrastable[i][j];
+    }
+    delete[] extrastable[i];
+  }
+  delete[] extrastable;
+  for (i=0;i<numpointsdomain-1;i++){
+    delete[] numnewpointsstable[i];
+  }
+  delete[] numnewpointsstable;
+
 
   for (i=0;i<15;i++){
     gsl_interp2d_free(P[i]);
@@ -4071,7 +4488,7 @@ void shot_manifolds2(double **thetac,double **fvals,gsl_interp2d **f,double **in
 }
 
 void shot_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals){
-  //This function is depreciated and replace by shot_manifolds2
+  //This function is depreciated and replaced by shot_manifolds2
   //Here we iterate F_eps through the stable and unstable directions.
   //We use the linear approximations given by P.
   int i,j,k,l,currentindex,ndim;
