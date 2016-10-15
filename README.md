@@ -6,8 +6,8 @@ This is a general purpose collection of tools aiming to compute Normally Hyperbo
 It is here implemented following the Newton-like method described in Chapter 5 of the <a href="http://www.springer.com/gp/book/9783319296609"> book </a> by Haro, Canadell, Figueras, Luque and Mondelo.
 Taking advantage of grid formulation, the software is parallelized with OpenMP and makes use of all available processors.
 
-The advantage of this Newton method is that it allows to compouted
-- the parameterization of the Normally Hyperbolic Manifold
+The advantage of this Newton method is that it allows to compoute
+- the parameterization of the Normally Hyperbolic Invariant Manifold
 - its dinner dynamics
 - its normal bundle.
 
