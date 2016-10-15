@@ -1,4 +1,4 @@
-# Computation of Normally Hyperbolic Invariant Manifolds and their stable and unstable manifold by means of the parameterization method (in parallel)
+# Computation of Normally Hyperbolic Invariant Manifolds and their stable and unstable manifolds by means of the parameterization method (in parallel)
 Distributed computation of Normally Hyperbolic Manfiolds via parameterization method
 <img src="https://github.com/a-granados/nhim_parameterization/blob/master/movie.gif">
 
