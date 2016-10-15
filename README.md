@@ -1,5 +1,5 @@
 # Computation of Normally Hyperbolic Invariant Manifolds and their stable and unstable manifolds by means of the parameterization method (in parallel)
-Distributed computation of Normally Hyperbolic Manfiolds via parameterization method
+Like the one below:
 <img src="https://github.com/a-granados/nhim_parameterization/blob/master/movie.gif">
 
 This is a general purpose collection of tools aiming to compute Normally Hyperbolic Manfiold (NHIMs) by beams of the so-called Parameterization method developed by Cabré, de la Llave and Fontich (see <a href="http://www.sciencedirect.com/science/article/pii/S0022039604005170"> this paper </a>).
