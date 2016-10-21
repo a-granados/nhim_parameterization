@@ -97,7 +97,7 @@ void iterate_FK(double **thetac, double **Kvals);
 void iterate_FK2(double **thetac, double **Kvals);
 void predict_fKeps(double **thetac,double **LambdaSvals, double *LambdaUvals, double **invPvals, double **Pvals, double **Kvals,double **fvals);
 void compute_DepsF(double **thetac,double **Kvals,double **EDepsFvals);
-void compute_S-U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals);
+void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals);
 void compute_invferror(double **thetac, double **fvals, gsl_interp2d **f,double **invfvals,gsl_interp2d **invf);
 
 int main (){
@@ -3419,7 +3419,7 @@ double one_step_of_Newton(double **thetac,double **fvals,double **invfvals, doub
   //Computation of global stable and unstable manifolds:
   if (count>1){
     cout<<"Computing stable and unstable directions..."<<endl;
-    compute_S-U_manifolds(thetac,fvals,f,invfvals,invf,Pvals,Kvals);
+    compute_S_U_manifolds(thetac,fvals,f,invfvals,invf,Pvals,Kvals);
     cout <<"Done."<<endl;
   }
 
@@ -3823,7 +3823,7 @@ void compute_DepsF(double **thetac,double **Kvals,double **EDepsFvals){
   }
 }
 
-void compute_S-U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals){
+void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals){
   //This routine obtains "the" stable and unstable manifolds of the NHIM.
   //We first obtain domains at the tangent spaces to W^s and W^u for
   //serveral values of theta and c. We compute a few iterations of
