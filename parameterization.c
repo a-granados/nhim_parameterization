@@ -19,12 +19,18 @@ using std::endl;
 //using std::setw;
 
 double tzeta=6e-5;
+//double tzeta=0.;
+//double tzeta=1e-2;
+//double tXi=0.1;
+//double tXi=5e-1;
+//double tXi=1e-2;
+//double tXi=1e-4;
 double tXi=0;
 double tF=1.;
 double tk=1.;
 double beta=1.;
 double pi=4.*atan(1.);
-double omega=2;
+double omega=2.1;//*2/3;
 double lambda=2e-1;
 double eps=0;
 
@@ -37,9 +43,9 @@ double tol=1.0e-13;
 size_t Ntheta=400;
 size_t Nc=200;
 double cini=0.1;
-double cend=1.4;
+double cend=1.2;
 double csimini=0.2;
-double csimend=1.2;
+double csimend=1;
 double thetasimini=0;
 double thetasimend=1;
 
@@ -50,7 +56,7 @@ const gsl_interp2d_type *T=gsl_interp2d_bicubic;
 #pragma omp threadprivate(tol)
 
 
-#include "piezo_library.c"
+#include "../piezo_library.c"
 
 using namespace std;
 
@@ -97,7 +103,7 @@ void iterate_FK(double **thetac, double **Kvals);
 void iterate_FK2(double **thetac, double **Kvals);
 void predict_fKeps(double **thetac,double **LambdaSvals, double *LambdaUvals, double **invPvals, double **Pvals, double **Kvals,double **fvals);
 void compute_DepsF(double **thetac,double **Kvals,double **EDepsFvals);
-void compute_S-U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals);
+void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals);
 void compute_invferror(double **thetac, double **fvals, gsl_interp2d **f,double **invfvals,gsl_interp2d **invf);
 
 int main (){
@@ -163,7 +169,7 @@ int main (){
   double *alphavals=new double[Nc];
   double *dalphavals=new double[Nc];
   double err,Newtol=1e-7;
-  int maxiter=8;
+  int maxiter=3;
   string filename;
 
   //-------------------------------------------------------------------------------
@@ -2969,7 +2975,7 @@ void iterate_inner_dynamics2(double **thetac,double **fvals,gsl_interp2d **f,gsl
   //grid \theta x c and iterate them.
   int i,j,k;
 
-  int numit=200;
+  int numit=1000;
   int nptheta=50;
   int npc=50;
   int *finaliter=new int[nptheta*npc];
@@ -3034,7 +3040,7 @@ void iterate_inner_dynamics2(double **thetac,double **fvals,gsl_interp2d **f,gsl
 void iterate_inner_dynamics(double **thetac,double **fvals,gsl_interp2d **f,gsl_interp2d **K,double **Kvals,string filename){
   int i,j,k;
   //Let's iterate the map:
-  int numit=100000;
+  int numit=1000;
   int numpoints=50;
   int *finaliter=new int[numpoints];
   double ***iterates=new double**[numpoints];
@@ -3333,7 +3339,7 @@ double one_step_of_Newton(double **thetac,double **fvals,double **invfvals, doub
   std:ostringstream s;
   s<<"iterates"<<"_f"<<count<<".tna";
   filename=s.str();
-  iterate_inner_dynamics2(thetac,fvals,f,K,Kvals,filename);
+  //iterate_inner_dynamics2(thetac,fvals,f,K,Kvals,filename);
   cout <<"Done."<<endl;
   
   //Computintg detDf:
@@ -3419,7 +3425,7 @@ double one_step_of_Newton(double **thetac,double **fvals,double **invfvals, doub
   //Computation of global stable and unstable manifolds:
   if (count>1){
     cout<<"Computing stable and unstable directions..."<<endl;
-    compute_S-U_manifolds(thetac,fvals,f,invfvals,invf,Pvals,Kvals);
+    compute_S_U_manifolds(thetac,fvals,f,invfvals,invf,Pvals,Kvals);
     cout <<"Done."<<endl;
   }
 
@@ -3823,7 +3829,7 @@ void compute_DepsF(double **thetac,double **Kvals,double **EDepsFvals){
   }
 }
 
-void compute_S-U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals){
+void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals){
   //This routine obtains "the" stable and unstable manifolds of the NHIM.
   //We first obtain domains at the tangent spaces to W^s and W^u for
   //serveral values of theta and c. We compute a few iterations of
@@ -3838,10 +3844,10 @@ void compute_S-U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,doubl
   double thetaini=0;
   double thetaend=1;
   int numpointstheta=1;//Number of points in the manifold. For each of them we compute approximations of the stable and stable manifold.
-  int numpointsc=100;//Number of points in the manifold. For each of them we compute approximations of the stable and stable manifold.
+  int numpointsc=5;//Number of points in the manifold. For each of them we compute approximations of the stable and stable manifold.
   int numpointsstable=1;//Number of points to generate the tangent space to the stable manifld (2d)
-  int numpointsdomain=100;//Number of points for the parameters parameterizing the manifolds
-  int numit=20;//Number of iterations. It starts with 0.
+  int numpointsdomain=50;//Number of points for the parameters parameterizing the manifolds
+  int numit=1;//Number of iterations. It starts with 0.
   double deltaini=0.5e-5;//Distance at which we start moving the parameter parameterizing the tangent space to the invariant manifolds
   double deltaend=3e-3;//deltaend-deltaini determines the "length" of domain to be iterated
   //Resampling parameters:
