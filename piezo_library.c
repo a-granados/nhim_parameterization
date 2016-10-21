@@ -353,6 +353,7 @@ double omegap_num(double u0,double v0){
 }
 
 void vfieldUw(double t, double *x, int nidm, double *dx){
+  //Unperturbed systems u-v-w
 
   dx[0]=x[1];
   dx[1]=0.5*beta*x[0]*(1-x[0]*x[0]);
@@ -361,6 +362,7 @@ void vfieldUw(double t, double *x, int nidm, double *dx){
 
 
 void vfieldUvar(double t, double *x, int ndim, double *dx){
+  //Variatonal equations of the system u-v-w
 
   dx[0]=x[1];
   dx[1]=0.5*beta*x[0]*(1-x[0]*x[0]);
@@ -389,6 +391,7 @@ void vfieldUvar2(double t, double *x, int ndim, double *dx){
 
 void vfieldunpertvar(double t, double *x, int ndim, double *dx){
   double a21,a43;
+  //Variational equations of the unperturbed systems
 
   a21=0.5*(1.-3.*x[0]*x[0]);
   a43=0.5*beta*(1.-3.*x[2]*x[2]);
@@ -432,6 +435,7 @@ void vfieldunpertvar(double t, double *x, int ndim, double *dx){
 }
 
 void vfieldunpert(double t, double *x, int ndim, double *dx){
+  //Unperturbed system
 
   dx[0]=x[1];
   dx[1]=0.5*x[0]*(1-x[0]*x[0]);
@@ -442,25 +446,27 @@ void vfieldunpert(double t, double *x, int ndim, double *dx){
 }
 
 void vfieldpert(double t, double *x, int ndim, double *dx){
+  //Full systems
 
   dx[0]=x[1];
-  dx[1]=0.5*x[0]*(1-x[0]*x[0])+eps*(-2*tzeta*x[1]+tXi*x[4]+tF*sin(omega*t));
+  dx[1]=0.5*x[0]*(1-x[0]*x[0])+eps*(-2*tzeta*x[1]+tXi*x[4]+tK*(x[0]-x[2])+tF*sin(omega*t));
   dx[2]=x[3];
-  dx[3]=0.5*beta*x[2]*(1-x[2]*x[2])+eps*(-2*tzeta*x[3]+tXi*x[4]+tF*sin(omega*t));
+  dx[3]=0.5*beta*x[2]*(1-x[2]*x[2])+eps*(-2*tzeta*x[3]+tXi*x[4]+tK*(x[2]-x[0])+tF*sin(omega*t));
   dx[4]=-lambda*x[4]-tk*(x[1]+x[3]);
 
 }
 
 void vfieldpertvar(double t, double *x, int ndim, double *dx){
   double a21,a43;
+  //Variational equations of the full perturbed field
 
   a21=0.5*(1.-3.*x[0]*x[0]);
   a43=0.5*beta*(1.-3.*x[2]*x[2]);
 
   dx[0]=x[1];
-  dx[1]=0.5*x[0]*(1-x[0]*x[0])+eps*(-2*tzeta*x[1]+tXi*x[4]+tF*sin(omega*t));
+  dx[1]=0.5*x[0]*(1-x[0]*x[0])+eps*(-2*tzeta*x[1]+tXi*x[4]+tK*(x[0]-x[2])+tF*sin(omega*t));
   dx[2]=x[3];
-  dx[3]=0.5*beta*x[2]*(1-x[2]*x[2])+eps*(-2*tzeta*x[3]+tXi*x[4]+tF*sin(omega*t));
+  dx[3]=0.5*beta*x[2]*(1-x[2]*x[2])+eps*(-2*tzeta*x[3]+tXi*x[4]+tK*(x[2]-x[0])+tF*sin(omega*t));
   dx[4]=-lambda*x[4]-tk*(x[1]+x[3]);
 
   dx[5]=x[10];
@@ -469,11 +475,11 @@ void vfieldpertvar(double t, double *x, int ndim, double *dx){
   dx[8]=x[13];
   dx[9]=x[14];
 
-  dx[10]=a21*x[5]-2.*eps*tzeta*x[10]+eps*tXi*x[25];
-  dx[11]=a21*x[6]-2.*eps*tzeta*x[11]+eps*tXi*x[26];
-  dx[12]=a21*x[7]-2.*eps*tzeta*x[12]+eps*tXi*x[27];
-  dx[13]=a21*x[8]-2.*eps*tzeta*x[13]+eps*tXi*x[28];
-  dx[14]=a21*x[9]-2.*eps*tzeta*x[14]+eps*tXi*x[29];
+  dx[10]=a21*x[5]-2.*eps*tzeta*x[10]+eps*tXi*x[25]+eps*tK*(x[5]-x[15]);
+  dx[11]=a21*x[6]-2.*eps*tzeta*x[11]+eps*tXi*x[26]+eps*tK*(x[6]-x[16]);
+  dx[12]=a21*x[7]-2.*eps*tzeta*x[12]+eps*tXi*x[27]+eps*tK*(x[7]-x[17]);
+  dx[13]=a21*x[8]-2.*eps*tzeta*x[13]+eps*tXi*x[28]+eps*tK*(x[8]-x[18]);
+  dx[14]=a21*x[9]-2.*eps*tzeta*x[14]+eps*tXi*x[29]+eps*tK*(x[9]-x[19]);
 
   dx[15]=x[20];
   dx[16]=x[21];
@@ -481,11 +487,11 @@ void vfieldpertvar(double t, double *x, int ndim, double *dx){
   dx[18]=x[23];
   dx[19]=x[24];
 
-  dx[20]=a43*x[15]-2.*eps*tzeta*x[20]+eps*tXi*x[25];
-  dx[21]=a43*x[16]-2.*eps*tzeta*x[21]+eps*tXi*x[26];
-  dx[22]=a43*x[17]-2.*eps*tzeta*x[22]+eps*tXi*x[27];
-  dx[23]=a43*x[18]-2.*eps*tzeta*x[23]+eps*tXi*x[28];
-  dx[24]=a43*x[19]-2.*eps*tzeta*x[24]+eps*tXi*x[29];
+  dx[20]=a43*x[15]-2.*eps*tzeta*x[20]+eps*tXi*x[25]+eps*tK*(x[15]-x[5]);
+  dx[21]=a43*x[16]-2.*eps*tzeta*x[21]+eps*tXi*x[26]+eps*tK*(x[16]-x[6]);
+  dx[22]=a43*x[17]-2.*eps*tzeta*x[22]+eps*tXi*x[27]+eps*tK*(x[17]-x[7]);
+  dx[23]=a43*x[18]-2.*eps*tzeta*x[23]+eps*tXi*x[28]+eps*tK*(x[18]-x[8]);
+  dx[24]=a43*x[19]-2.*eps*tzeta*x[24]+eps*tXi*x[29]+eps*tK*(x[19]-x[9]);
 
   dx[25]=-tk*(x[10]+x[20])-lambda*x[25];
   dx[26]=-tk*(x[11]+x[21])-lambda*x[26];
@@ -497,6 +503,9 @@ void vfieldpertvar(double t, double *x, int ndim, double *dx){
 
 void vfieldepsvar(double t,double *x,int ndim,double *dx){
   double a21,a26,a43,a46,ft;
+  //Variational equations of the full systems with eps as parameter
+  //(for continuation pursposes)
+  //Note: this is not used for now. The spring is missing.
 
   ft=sin(omega*t);
   a21=0.5*(1.-3.*x[0]*x[0]);
@@ -555,12 +564,14 @@ void vfieldepsvar(double t,double *x,int ndim,double *dx){
 }
 
 void vfieldU(double t, double *x, int ndim, double *dx){
+  //Unperturbed system u-v
 
   dx[0]=x[1];
   dx[1]=0.5*beta*x[0]*(1-x[0]*x[0]);
 }
 
 void vfieldX(double t, double *x, int ndim, double *dx){
+  //Unperturbed systems x-y
 
   dx[0]=x[1];
   dx[1]=0.5*x[0]*(1-x[0]*x[0]);
