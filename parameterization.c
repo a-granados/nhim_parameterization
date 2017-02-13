@@ -11,6 +11,7 @@
 #include <gsl/gsl_eigen.h>
 #include <gsl/gsl_spline2d.h>
 #include <gsl/gsl_interp2d.h>
+#include <gsl/gsl_spline.h>
 #include <omp.h>
 
 using std::cout;
@@ -18,13 +19,14 @@ using std::cout;
 using std::endl;
 //using std::setw;
 
+//System parameters: they are model-specific
 double tzeta=6e-5;
-double tXi=0;
-double tF=1.;
-double tk=1.;
-double beta=1.;
+double tXi=5e-2;//Piezoelectric auto-coupling (scaling parameter)
+double tF=1.;//Amplitud of the forcing (scaling parameter)
+double tk=1.;//Piezoelectric  coupling (scaling parameter)
+double tK=8e-2;//Spring constant (scaling parameter) (Hamiltonian coupling)
 double pi=4.*atan(1.);
-double omega=2;
+double omega=2.1;//*2/3;
 double lambda=2e-1;
 double eps=0;
 
@@ -34,8 +36,8 @@ double hmax=1.0;
 double tol=1.0e-13;
 
 //Gridsize:
-size_t Ntheta=400;
-size_t Nc=200;
+size_t Ntheta=200;
+size_t Nc=100;
 double cini=0.1;
 double cend=1.4;
 double csimini=0.2;
@@ -50,7 +52,7 @@ const gsl_interp2d_type *T=gsl_interp2d_bicubic;
 #pragma omp threadprivate(tol)
 
 
-#include "piezo_library.c"
+#include "../piezo_library.c"
 
 using namespace std;
 
@@ -97,8 +99,14 @@ void iterate_FK(double **thetac, double **Kvals);
 void iterate_FK2(double **thetac, double **Kvals);
 void predict_fKeps(double **thetac,double **LambdaSvals, double *LambdaUvals, double **invPvals, double **Pvals, double **Kvals,double **fvals);
 void compute_DepsF(double **thetac,double **Kvals,double **EDepsFvals);
-void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals);
+void iterate_bundles(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals);//Depreciated
 void compute_invferror(double **thetac, double **fvals, gsl_interp2d **f,double **invfvals,gsl_interp2d **invf);
+void introduce_element(double ***points,int n, int curpoint, double *newpoint);
+void resample_segment_IM(double ***extrapoints, double *inipointNB,double *finalpointNB, double *inipointIM, double *finalpointIM,int finaliter,  double maxdist, double maxangle, int *numnewpoints,int maxnewpoints, int stableorunstable);
+void iterate_bundles2(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals);
+void addnewpointsfiber(double **extrapoints,double ***pointsIM,int currentindex,int numpointsfiber, int numnewpoints);
+double cosangle(double *x1,double *x2,double *x3);
+void compute_fiber(double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable);
 
 int main (){
   cout.precision(15);
@@ -163,7 +171,7 @@ int main (){
   double *alphavals=new double[Nc];
   double *dalphavals=new double[Nc];
   double err,Newtol=1e-7;
-  int maxiter=8;
+  int maxiter=3;
   string filename;
 
   //-------------------------------------------------------------------------------
@@ -2969,7 +2977,7 @@ void iterate_inner_dynamics2(double **thetac,double **fvals,gsl_interp2d **f,gsl
   //grid \theta x c and iterate them.
   int i,j,k;
 
-  int numit=200;
+  int numit=1000;
   int nptheta=50;
   int npc=50;
   int *finaliter=new int[nptheta*npc];
@@ -3034,8 +3042,8 @@ void iterate_inner_dynamics2(double **thetac,double **fvals,gsl_interp2d **f,gsl
 void iterate_inner_dynamics(double **thetac,double **fvals,gsl_interp2d **f,gsl_interp2d **K,double **Kvals,string filename){
   int i,j,k;
   //Let's iterate the map:
-  int numit=100000;
-  int numpoints=50;
+  int numit=1000;
+  int numpoints=150;
   int *finaliter=new int[numpoints];
   double ***iterates=new double**[numpoints];
   for (i=0;i<numpoints;i++){
@@ -3333,7 +3341,7 @@ double one_step_of_Newton(double **thetac,double **fvals,double **invfvals, doub
   std:ostringstream s;
   s<<"iterates"<<"_f"<<count<<".tna";
   filename=s.str();
-  iterate_inner_dynamics2(thetac,fvals,f,K,Kvals,filename);
+  iterate_inner_dynamics(thetac,fvals,f,K,Kvals,filename);
   cout <<"Done."<<endl;
   
   //Computintg detDf:
@@ -3376,11 +3384,11 @@ double one_step_of_Newton(double **thetac,double **fvals,double **invfvals, doub
     s<<"iterates"<<"_invf"<<count<<".tna";
     filename=s.str();
     cout <<"Iterating the inverse..."<<endl;
-    //iterate_inner_dynamics2(thetac,invfvals,invf,K,Kvals,filename);
+    iterate_inner_dynamics(thetac,invfvals,invf,K,Kvals,filename);
     cout<<"Done."<<endl;
   }
   
-  //Here we compuse f and invf to see if verything is fine:
+  //Here we compute f and invf to see if verything is fine:
   /*
   cout <<"Computing error in the inverse..."<<endl;
   compute_invferror(thetac,fvals,f,invfvals,invf);
@@ -3419,7 +3427,7 @@ double one_step_of_Newton(double **thetac,double **fvals,double **invfvals, doub
   //Computation of global stable and unstable manifolds:
   if (count>1){
     cout<<"Computing stable and unstable directions..."<<endl;
-    compute_S_U_manifolds(thetac,fvals,f,invfvals,invf,Pvals,Kvals);
+    iterate_bundles2(thetac,fvals,f,invfvals,invf,Pvals,Kvals);
     cout <<"Done."<<endl;
   }
 
@@ -3823,7 +3831,442 @@ void compute_DepsF(double **thetac,double **Kvals,double **EDepsFvals){
   }
 }
 
-void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals){
+void iterate_bundles2(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals){
+  //This routine obtains "the" stable and unstable manifolds of the NHIM.
+  //We first obtain domains at the tangent spaces to W^s and W^u for
+  //serveral values of theta and c. We compute a few iterations of
+  //these values to generate manifolds close to the real stable and unstable
+  //manifolds.
+  //If, when iterating two consecutive points in the normal bundle,
+  //they become to separated, then a resampling processes takes place
+  //adding new points.
+  //Each fiber will contain a different number of points depending on
+  //its resampling needs. Hence, the fibers are interpolated using a
+  //sort of length arc and homogeneously resampled for plotting
+  //reasons.
+  //All points are later saved in files in a proper format to plot the manifolds
+  //in matlab using the plot_manifolds.m script.
+  //
+  //General parameters:
+  double thetaini=0;
+  double thetaend=1;
+  int numpointstheta=1;//Number of points in the manifold. For each of them we compute approximations of the stable and stable manifold.
+  int numpointsc=1000;//Number of points in the manifold. For each of them we compute approximations of the stable and stable manifold.
+  int numpointsstable=1;//Number of points to generate the tangent space to the stable manifold (2d)
+  int numpointsdomain=100;//Number of points for the parameters parameterizing the manifolds
+  int numit=8;//Number of iterations. It starts with 0.
+  double deltaini=0.5e-6;//Distance at which we start moving the parameter parameterizing the tangent space to the invariant manifolds
+  double deltaend=5e-3;//deltaend-deltaini determines the "length" of domain to be iterated
+  //Resampling parameters:
+  double maxdist=5e-2;//Maximal allowed distance between consecutive points in the leafs.
+  double maxangle=10*pi/180;//Maximal allowed angle between three consecutive points in the fibers
+  //Maximum number of points to be added in each resampling at iterate i.
+  int i;
+  int *maxnewpoints=new int[numit];
+  maxnewpoints[0]=0;
+  for (i=1;i<numit-1;i++){
+    maxnewpoints[i]=00;
+  }
+  for (i=numit-2;i<numit;i++){
+    maxnewpoints[i]=10000;
+  }
+
+  //const gsl_interp_type *Tfiber=gsl_interp_cspline;
+  const gsl_interp_type *Tfiber=gsl_interp_cspline;
+  int numpointsplot=1000;//Number of points per fiber that we want to user to plot in Matlab.
+
+  //File string for writing:
+  string filename;
+  std:ostringstream s;
+
+  int j,k,l,currentpoint,m,numnewpoints;
+  int numpoints=numpointstheta*numpointsc;//Number of points in the manifold for which we compute the stable an unstable fibers.
+  double curdist;
+  int **numpointsUfiber=new int*[numpoints];
+  double ****pointsUM=new double ***[numpoints];
+
+  gsl_interp2d **P=new gsl_interp2d*[15];
+  gsl_interp2d **K=new gsl_interp2d*[5];
+  #pragma omp parallel for
+  for (i=0;i<15;i++){
+    P[i]=gsl_interp2d_alloc(T,Ntheta,Nc);
+    gsl_interp2d_init(P[i],thetac[0],thetac[1],Pvals[2+i/3*5+i%3],Ntheta,Nc);
+    if(i<5){
+      K[i]=gsl_interp2d_alloc(T,Ntheta,Nc);
+      gsl_interp2d_init(K[i],thetac[0],thetac[1],Kvals[i],Ntheta,Nc);
+    }
+  }
+  
+  cout <<"  Iterating the unstable normal bundle."<<endl;
+  //------------------------------------------------------------------------------------------
+  //-------------Iteration of the unstable direction in the Normal bundle---------------------
+  //------------------------------------------------------------------------------------------
+  //We allocate temporary memory. This will be increased when
+  //resampling is needed.
+  for (j=0;j<numpoints;j++){
+    pointsUM[j]=new double**[numit];
+    numpointsUfiber[j]=new int[numit];
+    for (k=0;k<numit;k++){
+      pointsUM[j][k]=new double*[numpointsdomain];
+      for (i=0;i<numpointsdomain;i++){
+	pointsUM[j][k][i]=new double[5];
+      }
+      numpointsUfiber[j][k]=numpointsdomain;
+    }
+  }
+  //#pragma omp parallel for private(i,j,k,l,currentindex)
+  for (m=0;m<numpointstheta;m++){
+    #pragma omp parallel for private(j,k,l,currentpoint,numnewpoints,curdist)
+    for (i=0;i<numpointsc;i++){
+      gsl_interp_accel *thetaaac=gsl_interp_accel_alloc();
+      gsl_interp_accel *caac=gsl_interp_accel_alloc();
+      double *bpoint=new double[5];
+      double *vu=new double[5];
+      double modvu;
+
+      bpoint[0]=thetaini+double(m)*(thetaend-thetaini)/double(numpointstheta);
+      if (numpointsc>1){
+	bpoint[1]=csimini +double(i)*(csimend-csimini)/double(numpointsc-1);
+      }
+      else{
+	bpoint[1]=csimini +double(i)*(csimend-csimini)/double(numpointsc);
+      }
+      for (j=2;j<5;j++){
+	bpoint[j]=gsl_interp2d_eval_extrap(K[j],thetac[0],thetac[1],Kvals[j],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
+      }
+
+      modvu=0.;
+      for (k=0;k<5;k++){
+	vu[k]=gsl_interp2d_eval_extrap(P[2+3*k],thetac[0],thetac[1],Pvals[4+k*5],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
+	modvu+=vu[k]*vu[k];
+      }
+      modvu=sqrt(modvu);
+      currentpoint=i*numpointstheta+m;
+      for (l=0;l<numpointsdomain;l++){
+	for (j=0;j<5;j++){
+	  pointsUM[currentpoint][0][l][j]=bpoint[j];
+	  //Note that, if deltini=0, the base point at the NHIM is included and
+	  //iterated
+	  pointsUM[currentpoint][0][l][j]+=double(l)/double(numpointsdomain)*(deltaend-deltaini)*vu[j]/modvu;
+	}
+      }
+      compute_fiber(&pointsUM[currentpoint],numit,numpointsUfiber[currentpoint],maxnewpoints,numpointsdomain,maxangle,maxdist,1);
+      delete[] bpoint;
+      gsl_interp_accel_free(thetaaac);
+      gsl_interp_accel_free(caac);
+      delete[] vu;
+    }
+  }
+  cout<<"  Done."<<endl;
+
+  //Interpolation of the unstable manifold:
+  //For each point in the manifold we interpolate its unstable fiber. We use
+  //arch parameter.
+  //We then write data in files for Matlab plotting.
+  //Careful, for now this only works for numpointstheta=1
+  for (k=numit-2;k<numit;k++){
+    s.str("");
+    s.clear();
+    s<<"xfile-unstable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream xfile;
+    xfile.precision(10);
+    xfile.open(filename.c_str());
+    s.str("");
+    s.clear();
+    s<<"yfile-unstable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream yfile;
+    yfile.precision(10);
+    yfile.open(filename.c_str());
+    s.str("");
+    s.clear();
+    s<<"cfile-unstable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream cfile;
+    cfile.precision(10);
+    cfile.open(filename.c_str());
+    for (i=0;i<numpoints;i++){
+      gsl_interp **fiber=new gsl_interp*[3];
+      for (j=0;j<3;j++){
+	fiber[j]=gsl_interp_alloc(Tfiber,numpointsUfiber[i][k]);
+      }
+      gsl_interp_accel *arcacc=gsl_interp_accel_alloc();
+      double *xfiber=new double[numpointsUfiber[i][k]];
+      double *yfiber=new double[numpointsUfiber[i][k]];
+      double *cfiber=new double[numpointsUfiber[i][k]];
+      double *arcparam=new double[numpointsUfiber[i][k]];
+      double fiberlength=0.;
+      double dist=0;
+      for (j=0;j<numpointsUfiber[i][k];j++){
+	xfiber[j]=pointsUM[i][k][j][2];
+	yfiber[j]=pointsUM[i][k][j][3];
+	cfiber[j]=pointsUM[i][k][j][1];
+	dist=0;
+	if (j>0){
+	  dist+=pow(pointsUM[i][k][j][2]-pointsUM[i][k][j-1][2],2.);
+	  dist+=pow(pointsUM[i][k][j][3]-pointsUM[i][k][j-1][3],2.);
+	  dist+=pow(pointsUM[i][k][j][4]-pointsUM[i][k][j-1][4],2.);
+	  dist=sqrt(dist);
+	}
+	fiberlength+=dist;
+	arcparam[j]=fiberlength;
+      }
+      gsl_interp_init(fiber[0],arcparam,xfiber,numpointsUfiber[i][k]);
+      gsl_interp_init(fiber[1],arcparam,yfiber,numpointsUfiber[i][k]);
+      gsl_interp_init(fiber[2],arcparam,cfiber,numpointsUfiber[i][k]);
+      for (j=0;j<numpointsplot;j++){
+	xfile<<gsl_interp_eval(fiber[0],arcparam,xfiber,double(j)*fiberlength/double(numpointsplot),arcacc)<<" ";
+	yfile<<gsl_interp_eval(fiber[1],arcparam,yfiber,double(j)*fiberlength/double(numpointsplot),arcacc)<<" ";
+	cfile<<gsl_interp_eval(fiber[2],arcparam,cfiber,double(j)*fiberlength/double(numpointsplot),arcacc)<<" ";
+      }
+      /*
+      for (j=0;j<numpointsUfiber[i][k];j++){
+	xfile<<arcparam[j]<<" "<<xfiber[j]<<" "<<yfiber[j]<<" "<<cfiber[j]<<" "<<pointsUM[i][k][j][0]<<" "<<pointsUM[i][k][j][1]<<endl;
+      }
+      */
+      xfile<<endl;
+      yfile<<endl;
+      cfile<<endl;
+      delete [] xfiber;
+      delete[] yfiber;
+      delete[] cfiber;
+      delete [] arcparam;
+      for (j=0;j<3;j++){
+	gsl_interp_free(fiber[j]);
+      }
+      delete[] fiber;
+      gsl_interp_accel_free(arcacc);
+    }
+    xfile.close();
+    yfile.close();
+    cfile.close();
+  }
+
+  for (j=0;j<numpoints;j++){
+    for (i=0;i<numit;i++){
+      for (k=0;k<numpointsUfiber[j][i];k++){
+	delete[] pointsUM[j][i][k];
+      }
+      delete[] pointsUM[j][i];
+    }
+    delete[] pointsUM[j];
+    delete[] numpointsUfiber[j];
+  }
+  delete[] pointsUM;
+  delete[] numpointsUfiber;
+
+
+  //------------------------------------------------------------------------------------------
+  //-------------Iteration of the stable direction in the Normal bundle---------------------
+  //------------------------------------------------------------------------------------------
+  cout <<" Iterating the stable normal bundle."<<endl;
+  //We allocate temporary memory. This will be increased when
+  //resampling is needed.
+  double *****pointsSM=new double****[numpoints];
+  int ***numpointsSfiber=new int**[numpoints];
+  for (j=0;j<numpoints;j++){
+    pointsSM[j]=new double***[numpointsstable];
+    numpointsSfiber[j]=new int*[numpointsstable];
+    for (k=0;k<numpointsstable;k++){
+      pointsSM[j][k]=new double**[numit];
+      numpointsSfiber[j][k]=new int[numit];
+      for (i=0;i<numit;i++){
+	pointsSM[j][k][i]=new double*[numpointsdomain];
+	for (m=0;m<numpointsdomain;m++){
+	  pointsSM[j][k][i][m]=new double[5];
+	}
+	numpointsSfiber[j][k][i]=numpointsdomain;
+      }
+    }
+  }
+  //#pragma omp parallel for private(i,j,k,l,currentindex)
+  for (m=0;m<numpointstheta;m++){
+    #pragma omp parallel for private(j,k,l,currentpoint,numnewpoints,curdist)
+    for (i=0;i<numpointsc;i++){
+      gsl_interp_accel *thetaaac=gsl_interp_accel_alloc();
+      gsl_interp_accel *caac=gsl_interp_accel_alloc();
+      double *bpoint=new double[5];
+      double *vs1=new double[5];
+      double *vs2=new double[5];
+      double *vtmp=new double[5];
+      double modvs1,modvs2,modvtmp;
+      double Pivs1,Pivs2;
+
+      bpoint[0]=thetaini+double(m)*(thetaend-thetaini)/double(numpointstheta);
+      if (numpointsc>1){
+	bpoint[1]=csimini +double(i)*(csimend-csimini)/double(numpointsc-1);
+      }
+      else{
+	bpoint[1]=csimini +double(i)*(csimend-csimini)/double(numpointsc);
+      }
+      for (j=2;j<5;j++){
+	bpoint[j]=gsl_interp2d_eval_extrap(K[j],thetac[0],thetac[1],Kvals[j],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
+      }
+
+      modvs1=0.;
+      modvs2=0.;
+      for (k=0;k<5;k++){
+	vs1[k]=gsl_interp2d_eval_extrap(P[3*k],thetac[0],thetac[1],Pvals[2+k*5],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
+	vs2[k]=gsl_interp2d_eval_extrap(P[1+3*k],thetac[0],thetac[1],Pvals[3+k*5],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
+	modvs1+=vs1[k]*vs1[k];
+	modvs2+=vs2[k]*vs2[k];
+      }
+      modvs1=sqrt(modvs1);
+      modvs2=sqrt(modvs2);
+      currentpoint=i*numpointstheta+m;
+      for (k=0;k<numpointsstable;k++){
+	if (numpointsstable>1){
+	  Pivs1=double(numpointsstable-1-k)/double(numpointsstable);
+	  Pivs2=double(k)/double(numpointsstable);
+	}
+	else{
+	  Pivs1=1.;
+	  Pivs2=0.;
+	}
+	modvtmp=0.;
+	for (j=0;j<5;j++){
+	  vtmp[j]=Pivs1*vs1[j]+Pivs2*vs2[j];
+	  modvtmp+=vtmp[j]*vtmp[j];
+	}
+	modvtmp=sqrt(modvtmp);
+	currentpoint=i*numpointstheta+m;
+	for (l=0;l<numpointsdomain;l++){
+	  for (j=0;j<5;j++){
+	    pointsSM[currentpoint][k][0][l][j]=bpoint[j];
+	    //Note that, if deltini=0, the base point at the NHIM is included and
+	    //iterated
+	    pointsSM[currentpoint][k][0][l][j]+=double(l)/double(numpointsdomain)*(deltaend-deltaini)*vtmp[j]/modvtmp;
+	  }
+	}
+	compute_fiber(&pointsSM[currentpoint][k],numit,numpointsSfiber[currentpoint][k],maxnewpoints,numpointsdomain,maxangle,maxdist,0);
+      }
+      delete[] bpoint;
+      gsl_interp_accel_free(thetaaac);
+      gsl_interp_accel_free(caac);
+      delete[] vtmp;
+      delete[] vs1;
+      delete[] vs2;
+    }
+  }
+  
+  cout <<" Done."<<endl;
+
+  //Now we write data in a file. We use only the fiber given in the
+  //direction of vs1.
+  for (k=numit-2;k<numit;k++){
+    s.str("");
+    s.clear();
+    s<<"xfile-stable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream xfile;
+    xfile.precision(10);
+    xfile.open(filename.c_str());
+    s.str("");
+    s.clear();
+    s<<"yfile-stable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream yfile;
+    yfile.precision(10);
+    yfile.open(filename.c_str());
+    s.str("");
+    s.clear();
+    s<<"cfile-stable"<<"_"<<count<<"_"<<k<<".tna";
+    filename=s.str();
+    ofstream cfile;
+    cfile.precision(10);
+    cfile.open(filename.c_str());
+    for (i=0;i<numpoints;i++){
+      gsl_interp **fiber=new gsl_interp*[3];
+      for (j=0;j<3;j++){
+	fiber[j]=gsl_interp_alloc(Tfiber,numpointsSfiber[i][0][k]);
+      }
+      gsl_interp_accel *arcacc=gsl_interp_accel_alloc();
+      double *xfiber=new double[numpointsSfiber[i][0][k]];
+      double *yfiber=new double[numpointsSfiber[i][0][k]];
+      double *cfiber=new double[numpointsSfiber[i][0][k]];
+      double *arcparam=new double[numpointsSfiber[i][0][k]];
+      double fiberlength=0.;
+      double dist=0;
+      for (j=0;j<numpointsSfiber[i][0][k];j++){
+	xfiber[j]=pointsSM[i][0][k][j][2];
+	yfiber[j]=pointsSM[i][0][k][j][3];
+	cfiber[j]=pointsSM[i][0][k][j][1];
+	dist=0;
+	if (j>0){
+	  dist+=pow(pointsSM[i][0][k][j][2]-pointsSM[i][0][k][j-1][2],2.);
+	  dist+=pow(pointsSM[i][0][k][j][3]-pointsSM[i][0][k][j-1][3],2.);
+	  dist+=pow(pointsSM[i][0][k][j][4]-pointsSM[i][0][k][j-1][4],2.);
+	  dist=sqrt(dist);
+	}
+	fiberlength+=dist;
+	arcparam[j]=fiberlength;
+      }
+      gsl_interp_init(fiber[0],arcparam,xfiber,numpointsSfiber[i][0][k]);
+      gsl_interp_init(fiber[1],arcparam,yfiber,numpointsSfiber[i][0][k]);
+      gsl_interp_init(fiber[2],arcparam,cfiber,numpointsSfiber[i][0][k]);
+      for (j=0;j<numpointsplot;j++){
+	xfile<<gsl_interp_eval(fiber[0],arcparam,xfiber,double(j)*fiberlength/double(numpointsplot),arcacc)<<" ";
+	yfile<<gsl_interp_eval(fiber[1],arcparam,yfiber,double(j)*fiberlength/double(numpointsplot),arcacc)<<" ";
+	cfile<<gsl_interp_eval(fiber[2],arcparam,cfiber,double(j)*fiberlength/double(numpointsplot),arcacc)<<" ";
+      }
+      /*
+      for (j=0;j<numpointsSfiber[i][0][k];j++){
+	xfile<<arcparam[j]<<" "<<xfiber[j]<<" "<<yfiber[j]<<" "<<cfiber[j]<<" "<<pointsSM[i][0][k][j][0]<<" "<<pointsSM[i][0][k][j][1]<<endl;
+      }
+      */
+      xfile<<endl;
+      yfile<<endl;
+      cfile<<endl;
+      delete [] xfiber;
+      delete[] yfiber;
+      delete[] cfiber;
+      delete [] arcparam;
+      for (j=0;j<3;j++){
+	gsl_interp_free(fiber[j]);
+      }
+      delete[] fiber;
+      gsl_interp_accel_free(arcacc);
+    }
+    xfile.close();
+    yfile.close();
+    cfile.close();
+  }
+
+  for (i=0;i<numpoints;i++){
+    for (j=0;j<numpointsstable;j++){
+      for (k=0;k<numit;k++){
+	for (m=0;m<numpointsdomain;m++){
+	  delete[] pointsSM[i][j][k][m];
+	}
+	delete[] pointsSM[i][j][k];
+      }
+      delete[] numpointsSfiber[i][j];
+      delete[] pointsSM[i][j];
+    }
+    delete[] numpointsSfiber[i];
+    delete[] pointsSM[i];
+  }
+  delete[] pointsSM;
+  delete[] numpointsSfiber;
+
+
+  delete[] maxnewpoints;
+  for (i=0;i<15;i++){
+    gsl_interp2d_free(P[i]);
+  }
+  delete[] P;
+  for (i=0;i<5;i++){
+    gsl_interp2d_free(K[i]);
+  }
+  delete [] K;
+}
+
+void iterate_bundles(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals){
+  //This function is depreciated, use version 2 instead, which is much more
+  //memory efficient and faster.
+  //
+  //
   //This routine obtains "the" stable and unstable manifolds of the NHIM.
   //We first obtain domains at the tangent spaces to W^s and W^u for
   //serveral values of theta and c. We compute a few iterations of
@@ -3838,16 +4281,16 @@ void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,doubl
   double thetaini=0;
   double thetaend=1;
   int numpointstheta=1;//Number of points in the manifold. For each of them we compute approximations of the stable and stable manifold.
-  int numpointsc=100;//Number of points in the manifold. For each of them we compute approximations of the stable and stable manifold.
+  int numpointsc=1000;//Number of points in the manifold. For each of them we compute approximations of the stable and stable manifold.
   int numpointsstable=1;//Number of points to generate the tangent space to the stable manifld (2d)
-  int numpointsdomain=100;//Number of points for the parameters parameterizing the manifolds
-  int numit=20;//Number of iterations. It starts with 0.
-  double deltaini=0.5e-5;//Distance at which we start moving the parameter parameterizing the tangent space to the invariant manifolds
-  double deltaend=3e-3;//deltaend-deltaini determines the "length" of domain to be iterated
+  int numpointsdomain=10;//Number of points for the parameters parameterizing the manifolds
+  int numit=8;//Number of iterations. It starts with 0.
+  double deltaini=1e-5;//Distance at which we start moving the parameter parameterizing the tangent space to the invariant manifolds
+  double deltaend=5e-3;//deltaend-deltaini determines the "length" of domain to be iterated
   //Resampling parameters:
-  double maxdist=1e-2;
+  double maxdist=1e-3;
   //int maxnewpoints=35000;//Maximum number of new points in each segment.
-  //Maximum number of new points in each segment. Take into account that memeory
+  //Maximum number of new points in each segment. Take into account that memory
   //is reserved for all iterates. The following allows to adapt the amount of
   //new samples at each iteration to avoid unnecessary memory reservation. Note
   //that the first iteration generally do not need resampling because the
@@ -3856,9 +4299,12 @@ void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,doubl
   //Adapt this to your needs.
   int i;
   int *maxnewpoints=new int[numit];
-  maxnewpoints[0]=5;
-  for (i=0;i<numit;i++){
-    maxnewpoints[i]=2;
+  maxnewpoints[0]=10;
+  for (i=0;i<numit-1;i++){
+    maxnewpoints[i]=1000000;
+  }
+  for (i=numit-1;i<numit;i++){
+    maxnewpoints[i]=1000000;
   }
   //maxnewpoints[10]=2000000;
 
@@ -4097,8 +4543,8 @@ void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,doubl
 
   //We now resample those segments whose vertices are too far away one
   //another. When this occurs, we estimate the number of points we
-  //need to add to such that the distance between the new points is
-  //the desired.
+  //need to add such that the distance between the new points is
+  //below maxdist.
   //The number of resamples is decided checking only the leaf
   //c=csimini and theta=thetaini. Then, everything is reapeated for
   //the other values of theta and c.
@@ -4137,12 +4583,13 @@ void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,doubl
       }
       curdist=sqrt(curdist);
       if (curdist>maxdist){
-	numnewpointsunstable[j][k]=int(curdist/maxdist)-1;
+	//numnewpointsunstable[j][k]=int(curdist/maxdist)-1;
+	numnewpointsunstable[j][k]=int(curdist/maxdist);
 	if (numnewpointsunstable[j][k]>maxnewpoints[k]){
 	  numnewpointsunstable[j][k]=maxnewpoints[k];
 	}
 	numresamples=1;
-	while(curdist>maxdist && numresamples*numnewpointsunstable[j][k]<maxnewpoints[k]){
+	while(curdist>maxdist && numresamples*numnewpointsunstable[j][k]<=maxnewpoints[k]){
 	  numnewpointsunstable[j][k]=numresamples*numnewpointsunstable[j][k];
 	  modvu=0.;
 	  for (i=0;i<5;i++){
@@ -4154,9 +4601,11 @@ void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,doubl
 	  #pragma omp parallel for private(i)
 	  for (l=0;l<numnewpointsunstable[j][k];l++){
 	    double thetatmp,ctmp,xtmp,ytmp,wtmp,newinc;
-	    //------Use this to avoid iterating the base point (which belong to the-----
+	    //------Use this to avoid iterating the base point (which belongs to the-----
+	    //manifold):----------
 	    //newinc=double(l+1)*curdist/double(numnewpointsunstable[j][k]+1);
 	    //------Use this to include the base point (for example to see the------
+	    //tangency)--------
 	    newinc=double(l)*curdist/double(numnewpointsunstable[j][k]+1);
 	    thetatmp=iteratesunstable[j][0][0]+newinc*vu[0]/modvu;
 	    ctmp=iteratesunstable[j][0][1]+newinc*vu[1]/modvu;
@@ -4177,7 +4626,7 @@ void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,doubl
 	      wtmp=extraunstable[j][k][l][4];
 	    }
 	  }
-	  //We now check that all distances between consecutive new poins are below maxdist:
+	  //We now check that all distances between consecutive new points are below maxdist:
 	  curdist=0;
 	  for (l=0;l<5;l++){
 	    curdist+=pow(extraunstable[j][k][1][l]-extraunstable[j][k][0][l],2.);
@@ -4195,7 +4644,7 @@ void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,doubl
 	  numresamples++;
 	}
 
-	//We add numnewpointsunstable extra points
+	//We add numnewpointsunstable extra points to the rest of values of c
 	#pragma omp parallel for private(l,i,curdist)
 	for (m=1;m<numpointsc;m++){
 	  double modvu;
@@ -4337,12 +4786,13 @@ void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,doubl
       double *vs1=new double[5];
       if (curdist>maxdist){//We resample
 	//We first compute the number of new points.
-	numnewpointsstable[j][k]=int(curdist/maxdist)-1;//first estimate
+	//numnewpointsstable[j][k]=int(curdist/maxdist)-1;//first estimate
+	numnewpointsstable[j][k]=int(curdist/maxdist);//first estimate
 	if (numnewpointsstable[j][k]>maxnewpoints[k]){
 	  numnewpointsstable[j][k]=maxnewpoints[k];
 	}
 	numresamples=1;
-	while(curdist>maxdist && numresamples*numnewpointsstable[j][k]<maxnewpoints[k]){
+	while(curdist>maxdist && numresamples*numnewpointsstable[j][k]<=maxnewpoints[k]){
 	  numnewpointsstable[j][k]=numresamples*numnewpointsstable[j][k];
 	  modvs1=0.;
 	  for (i=0;i<5;i++){
@@ -4356,10 +4806,10 @@ void compute_S_U_manifolds(double **thetac,double **fvals,gsl_interp2d **f,doubl
 	    double thetatmp,ctmp,xtmp,ytmp,wtmp,newinc;
 	    //-------use this to avoid iterating the base point (which belong to the
 	    //manifold):----------
-	    newinc=double(l+1)*curdist/double(numnewpointsstable[j][k]+1);
+	    //newinc=double(l+1)*curdist/double(numnewpointsstable[j][k]+1);
 	    //------Use this to include the base point (for example to see the
 	    //tangency)--------
-	    //newinc=double(l)*curdist/double(numnewpointsstable[j][k]+1);
+	    newinc=double(l)*curdist/double(numnewpointsstable[j][k]+1);
 	    thetatmp=iteratesstable[j][0][0]+newinc*vs1[0]/modvs1;
 	    ctmp=iteratesstable[j][0][1]+newinc*vs1[1]/modvs1;
 	    xtmp=iteratesstable[j][0][2]+newinc*vs1[2]/modvs1;
@@ -4572,4 +5022,364 @@ void compute_invferror(double **thetac, double **fvals, gsl_interp2d **f,double 
     delete[] invffvals[i];
   }
   delete[] invffvals;
+}
+
+void resample_segment_IM(double ***extrapoints, double *inipointNB,double *finalpointNB, double *inipointIM, double *finalpointIM,int finaliter,  double maxdist, double maxangle, int *numnewpoints,int maxnewpoints, int stableorunstable){
+  //This resamples the stable/unstable Invariant Manifolds between two given
+  //points whose distance in the x-y-w space is larger than a tolerance or the
+  //angle between three consecutive points is larger than maxangle (in radians).
+  //We assume:
+  //- hdeltaNM: this is the distance between the two corresponding points at the normal bundle
+  //- v is the direction we are using at the normal bundle. v is
+  //normalized!!! 
+  //- stableorunstable=0 for stable manifold, 1 for the unstable one.
+  //To simplify the algorithm, extrapoints includes both inipointIM
+  //and finalpointIM in the first and last position.
+  double mincosangle=cos(maxangle);//The normalized scalar product must be above this value.
+  double curcosangle;
+
+  int i,j,curextrapoint;
+  double distprev,distnext;//Distances between the current new point and the previous and next one.
+  double thetatmp,ctmp,xtmp,ytmp,wtmp;
+  double **basepoints;
+  double *newpoint=new double[5];
+  *numnewpoints=2;
+  (*extrapoints)=new double*[*numnewpoints];
+  basepoints=new double*[*numnewpoints];
+  for (i=0;i<*numnewpoints;i++){
+    (*extrapoints)[i]=new double[5];
+    basepoints[i]=new double[5];
+  }
+  for (i=0;i<5;i++){
+    (*extrapoints)[0][i]=inipointIM[i];
+    (*extrapoints)[1][i]=finalpointIM[i];
+    basepoints[0][i]=inipointNB[i];
+    basepoints[1][i]=finalpointNB[i];
+  }
+  //We assume current distance>maxist, so we start allocating memory
+  //for one extra point (the middle one).
+  curextrapoint=0;
+  for (j=0;j<5;j++){
+    newpoint[j]=basepoints[0][j]/2.+basepoints[1][j]/2.;
+  }
+  introduce_element(extrapoints,*numnewpoints,curextrapoint,newpoint);
+  introduce_element(&basepoints,*numnewpoints,curextrapoint,newpoint);
+  *numnewpoints=3;
+  curextrapoint++;
+  thetatmp=(*extrapoints)[curextrapoint][0];
+  ctmp=(*extrapoints)[curextrapoint][1];
+  xtmp=(*extrapoints)[curextrapoint][2];
+  ytmp=(*extrapoints)[curextrapoint][3];
+  wtmp=(*extrapoints)[curextrapoint][4];
+  for (i=0;i<finaliter;i++){
+    if (stableorunstable==0){//Stable Manifold
+      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
+    }
+    if (stableorunstable==1){//Unstable Manifold
+      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
+    }
+    thetatmp=(*extrapoints)[curextrapoint][0];
+    ctmp=(*extrapoints)[curextrapoint][1];
+    xtmp=(*extrapoints)[curextrapoint][2];
+    ytmp=(*extrapoints)[curextrapoint][3];
+    wtmp=(*extrapoints)[curextrapoint][4];
+  }
+  distprev=0;
+  distnext=0;
+  for (i=2;i<5;i++){
+    distprev+=pow((*extrapoints)[curextrapoint-1][i]-(*extrapoints)[curextrapoint][i],2.);
+    distnext+=pow((*extrapoints)[curextrapoint+1][i]-(*extrapoints)[curextrapoint][i],2.);
+  }
+  distprev=sqrt(distprev);
+  distnext=sqrt(distnext);
+  curcosangle=cosangle((*extrapoints)[curextrapoint-1],(*extrapoints)[curextrapoint], (*extrapoints)[curextrapoint+1]);
+  if (distprev>=maxdist || distnext>=maxdist || curcosangle<mincosangle ){//We add a new extra point
+    if (distprev>=maxdist || curcosangle<mincosangle  ){//Point will be added previous to the current one.
+      curextrapoint+=-1;
+    }
+    for (j=0;j<5;j++){
+      newpoint[j]=basepoints[curextrapoint][j]/2.+basepoints[curextrapoint+1][j]/2.;
+    }
+  }
+  else {//Both distances to the next and previous points are below maxdist. So we are done because this is the first point addition.
+    curextrapoint++;//This should avoid entering the next loop
+  }
+  while (curextrapoint<*numnewpoints-1 && *numnewpoints-2 <maxnewpoints){
+    introduce_element(extrapoints,*numnewpoints,curextrapoint,newpoint);
+    introduce_element(&basepoints,*numnewpoints,curextrapoint,newpoint);
+    *numnewpoints=*numnewpoints+1;
+    curextrapoint++;
+    thetatmp=(*extrapoints)[curextrapoint][0];
+    ctmp=(*extrapoints)[curextrapoint][1];
+    xtmp=(*extrapoints)[curextrapoint][2];
+    ytmp=(*extrapoints)[curextrapoint][3];
+    wtmp=(*extrapoints)[curextrapoint][4];
+    for (i=0;i<finaliter;i++){
+      if (stableorunstable==0){//Stable Manifold
+	invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
+      }
+      if (stableorunstable==1){//Unstable Manifold
+	F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
+      }
+      thetatmp=(*extrapoints)[curextrapoint][0];
+      ctmp=(*extrapoints)[curextrapoint][1];
+      xtmp=(*extrapoints)[curextrapoint][2];
+      ytmp=(*extrapoints)[curextrapoint][3];
+      wtmp=(*extrapoints)[curextrapoint][4];
+    }
+    distprev=0;
+    distnext=0;
+    for (i=2;i<5;i++){
+      distprev+=pow((*extrapoints)[curextrapoint-1][i]-(*extrapoints)[curextrapoint][i],2.);
+      distnext+=pow((*extrapoints)[curextrapoint+1][i]-(*extrapoints)[curextrapoint][i],2.);
+    }
+    distprev=sqrt(distprev);
+    distnext=sqrt(distnext);
+    curcosangle=cosangle((*extrapoints)[curextrapoint-1],(*extrapoints)[curextrapoint], (*extrapoints)[curextrapoint+1]);
+    if (distprev>=maxdist || distnext>=maxdist || curcosangle<mincosangle){//We add a new extra point
+      if (distprev>=maxdist){//Point will be added previous to the current one.
+	curextrapoint+=-1;
+      }
+      for (j=0;j<5;j++){
+	newpoint[j]=basepoints[curextrapoint][j]/2.+basepoints[curextrapoint+1][j]/2.;
+      }
+    }
+    else {//Both distances to the next and previous points are below maxdist and the angle is below the maximum. So we move on until we find some distance above the threshold.
+      while (distnext<maxdist && curcosangle>=mincosangle && curextrapoint<*numnewpoints-2){
+	curextrapoint++;
+	distnext=0.;
+	for (j=2;j<5;j++){
+	  distnext+=pow((*extrapoints)[curextrapoint][j]-(*extrapoints)[curextrapoint+1][j],2.);
+	}
+	distnext=sqrt(distnext);
+	curcosangle=cosangle((*extrapoints)[curextrapoint-1],(*extrapoints)[curextrapoint], (*extrapoints)[curextrapoint+1]);
+      }
+      if (distnext>=maxdist || curcosangle<mincosangle){//We stopped because we found two points that need resampling
+	for (j=0;j<5;j++){
+	  newpoint[j]=basepoints[curextrapoint][j]/2.+basepoints[curextrapoint+1][j]/2.;
+	}
+      }
+      else {//We stopped because we finished checking all points and all are below maxdist.
+	curextrapoint++;
+      }
+    }
+  }
+  //*numnewpoints=*numnewpoints-1;
+  delete[] newpoint;
+  for (i=0;i<*numnewpoints;i++){
+    delete [] basepoints[i];
+  }
+  delete [] basepoints;
+}
+
+void introduce_element(double ***points,int n, int curpoint, double *newpoint){
+  //Given n points, this adds newpoint between curpoint and curpoint+1.
+  double **pointsaux=new double*[n];
+  int i,j;
+  int ndim=5;
+
+  for (i=0;i<n;i++){
+    pointsaux[i]=new double[ndim];
+    for (j=0;j<ndim;j++){
+      pointsaux[i][j]=(*points)[i][j];
+    }
+    delete []  (*points)[i];
+  }
+  delete [] *points;
+  (*points)=new double*[n+1];
+  for(i=0;i<=curpoint;i++){
+    (*points)[i]=new double[ndim];
+    for (j=0;j<ndim;j++){
+      (*points)[i][j]=pointsaux[i][j];
+    }
+    delete [] pointsaux[i];
+  }
+  (*points)[curpoint+1]=new double[ndim];
+  for (j=0;j<ndim;j++){
+    (*points)[curpoint+1][j]=newpoint[j];
+  }
+  for (i=curpoint+1;i<n;i++){
+    (*points)[i+1]=new double[ndim];
+    for (j=0;j<ndim;j++){
+      (*points)[i+1][j]=pointsaux[i][j];
+    }
+    delete[] pointsaux[i];
+  }
+  delete [] pointsaux;
+}
+
+void addnewpointsfiber(double **extrapoints,double ***pointsIM,int currentindex,int numpointsfiber, int numnewpoints){
+  //This will add the points contained in extrapoints to the array
+  //pointsIM. The total size of pointsIM is numpointsfiber, and will
+  //be increased in numnewpoints-2 points. Note that the first and
+  //last points in numnewpoints are already contained in
+  //pointsIM[currentindex] and pointsIM[currentindex+1], respectively.
+  //The rest of points from currentindex+numnewpoints to
+  //numpointsfiber+numnewpoints are set to 0 because nothing important
+  //is supposed to be ther at this point.
+  int i,j;
+  double **auxpoints=new double*[currentindex];
+  for (i=0;i<currentindex;i++){
+    auxpoints[i]=new double[5];
+    for (j=0;j<5;j++){
+    auxpoints[i][j]=(*pointsIM)[i][j];
+    }
+    delete [] (*pointsIM)[i];
+  }
+  for (i=currentindex;i<numpointsfiber;i++){
+    delete[] (*pointsIM)[i];
+  }
+  delete[] (*pointsIM);
+
+  (*pointsIM)=new double*[numpointsfiber+numnewpoints-2];//First and last points in extrapoints are already included in pointsIM
+  for (i=0;i<currentindex;i++){
+    (*pointsIM)[i]=new double[5];
+    for (j=0;j<5;j++){
+      (*pointsIM)[i][j]=auxpoints[i][j];
+    }
+    delete [] auxpoints[i];
+  }
+  delete[] auxpoints;
+  for (i=0;i<numnewpoints;i++){
+    (*pointsIM)[currentindex+i]=new double[5];
+    for (j=0;j<5;j++){
+      (*pointsIM)[currentindex+i][j]=extrapoints[i][j];
+    }
+    if (i>0){
+      if (extrapoints[i][2]==extrapoints[i-1][2]){
+	cout<<"Oju cagada: "<<extrapoints[i-1][2]<<" "<<extrapoints[i][2]<<endl;
+      }
+    }
+  }
+  for (i=currentindex+numnewpoints;i<numpointsfiber+numnewpoints-2;i++){
+    (*pointsIM)[i]=new double[5];
+    for (j=0;j<5;j++){
+      (*pointsIM)[i][j]=0.;
+    }
+  }
+}
+
+double cosangle(double *x1,double *x2,double *x3){
+  //This returns the cosinus of the angle between the vectores defined by these
+  //3 points. We only take into account coordinates x and y.
+  double modv1=0;
+  double modv2=0;
+  double sproduct=0;
+  int i;
+  for (i=2;i<4;i++){
+    modv1+=pow(x2[i]-x1[i],2.);
+    modv2+=pow(x3[i]-x2[i],2.);
+    sproduct+=(x2[i]-x1[i])*(x3[i]-x2[i]);
+  }
+  modv1=sqrt(modv1);
+  modv2=sqrt(modv2);
+  return fabs(sproduct/(modv1*modv2));
+}
+
+void compute_fiber(double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable){
+  int k,l,j,lastindex;
+  double thetatmp,ctmp,xtmp,ytmp,wtmp;
+  double curdist;
+  bool angleok;
+  double *nextpoint=new double[5];
+  double **extrapoints;
+  double *Fthetax=new double[5];
+  int numnewpoints;
+  //This contains the indeces in pointsIM where the main domain points
+  //are stored.
+  int **domaindeces=new int*[numit];
+  for (j=0;j<numit;j++){
+    domaindeces[j]=new int[numpointsdomain];
+    for (l=0;l<numpointsdomain;l++){
+      domaindeces[j][l]=l;
+    }
+  }
+
+  for (k=1;k<numit;k++){
+    thetatmp=(*pointsIM)[k-1][0][0];
+    ctmp=(*pointsIM)[k-1][0][1];
+    xtmp=(*pointsIM)[k-1][0][2];
+    ytmp=(*pointsIM)[k-1][0][3];
+    wtmp=(*pointsIM)[k-1][0][4];
+    if (stableorunstable==0){
+      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,Fthetax);
+    }
+    if (stableorunstable==1){ 
+      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,Fthetax);
+    }
+    (*pointsIM)[k][0][0]=Fthetax[0];
+    (*pointsIM)[k][0][1]=Fthetax[1];
+    (*pointsIM)[k][0][2]=Fthetax[2];
+    (*pointsIM)[k][0][3]=Fthetax[3];
+    (*pointsIM)[k][0][4]=Fthetax[4];
+    domaindeces[k][0]=0;
+    thetatmp=(*pointsIM)[k-1][domaindeces[k-1][1]][0];
+    ctmp=(*pointsIM)[k-1][domaindeces[k-1][1]][1];
+    xtmp=(*pointsIM)[k-1][domaindeces[k-1][1]][2];
+    ytmp=(*pointsIM)[k-1][domaindeces[k-1][1]][3];
+    wtmp=(*pointsIM)[k-1][domaindeces[k-1][1]][4];
+    if (stableorunstable==0){
+      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
+    }
+    if (stableorunstable==1){ 
+      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
+    }
+    for (l=1;l<numpointsdomain;l++){
+      lastindex=domaindeces[k][l-1];
+      for (j=0;j<5;j++){
+	(*pointsIM)[k][lastindex+1][j]=nextpoint[j];
+      }
+      //We check the distance:
+      curdist=0;
+      //Careful, distance is taken into account only in the x-y-w space, not
+      //in inner coordinates
+      for (j=2;j<5;j++){
+	curdist+=pow((*pointsIM)[k][lastindex+1][j]-(*pointsIM)[k][lastindex][j],2.);
+      }
+      curdist=sqrt(curdist);
+      //We check the angle.
+      if (l<numpointsdomain-1){
+	// compute next iterate to check the angle
+	thetatmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][0];
+	ctmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][1];
+	xtmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][2];
+	ytmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][3];
+	wtmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][4];
+	if (stableorunstable==0){//Stable manifold
+	  invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
+	}
+	if (stableorunstable==1){//Unstable manifold 
+	  F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
+	}
+	if (cosangle((*pointsIM)[k][lastindex],(*pointsIM)[k][lastindex+1],nextpoint)<cos(maxangle)){
+	  angleok=false;
+	}
+	else {
+	  angleok=true;
+	}
+      }
+      else {
+	angleok=true;
+      }
+      numnewpoints=2;
+      if ((curdist>=maxdist || !angleok) && maxnewpoints[k]>0){
+	resample_segment_IM(&extrapoints,(*pointsIM)[0][l-1],(*pointsIM)[0][l],(*pointsIM)[k][lastindex],(*pointsIM)[k][lastindex+1],k,maxdist,maxangle,&numnewpoints,maxnewpoints[k],stableorunstable);
+	//Now we add the points in extrapoints into
+	//pointsIM:
+	addnewpointsfiber(extrapoints,&(*pointsIM)[k],lastindex,numpointsfiber[k],numnewpoints);
+	numpointsfiber[k]+=numnewpoints-2;
+	for (j=0;j<numnewpoints;j++){
+	  delete[] extrapoints[j];
+	}
+	delete[] extrapoints;
+      }
+      domaindeces[k][l]=lastindex+1+numnewpoints-2;
+    }
+  }
+  delete[] nextpoint;
+  delete[] Fthetax;
+  for (j=0;j<numit;j++){
+    delete[] domaindeces[j];
+  }
+  delete[] domaindeces;
 }
