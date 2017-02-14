@@ -106,7 +106,7 @@ void resample_segment_IM(double ***extrapoints, double *inipointNB,double *final
 void iterate_bundles2(double **thetac,double **fvals,gsl_interp2d **f,double **invfvals,gsl_interp2d **invf,double **Pvals,double **Kvals);
 void addnewpointsfiber(double **extrapoints,double ***pointsIM,int currentindex,int numpointsfiber, int numnewpoints);
 double cosangle(double *x1,double *x2,double *x3);
-void compute_fiber(double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable);
+void compute_fiber(double *bpoint,double *v,double deltaini,double deltaend,double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable);
 
 int main (){
   cout.precision(15);
@@ -3922,7 +3922,6 @@ void iterate_bundles2(double **thetac,double **fvals,gsl_interp2d **f,double **i
       gsl_interp_accel *caac=gsl_interp_accel_alloc();
       double *bpoint=new double[5];
       double *vu=new double[5];
-      double modvu;
 
       bpoint[0]=thetaini+double(m)*(thetaend-thetaini)/double(numpointstheta);
       if (numpointsc>1){
@@ -3935,22 +3934,11 @@ void iterate_bundles2(double **thetac,double **fvals,gsl_interp2d **f,double **i
 	bpoint[j]=gsl_interp2d_eval_extrap(K[j],thetac[0],thetac[1],Kvals[j],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
       }
 
-      modvu=0.;
       for (k=0;k<5;k++){
 	vu[k]=gsl_interp2d_eval_extrap(P[2+3*k],thetac[0],thetac[1],Pvals[4+k*5],modulo(bpoint[0],1.),bpoint[1],thetaaac,caac);
-	modvu+=vu[k]*vu[k];
       }
-      modvu=sqrt(modvu);
       currentpoint=i*numpointstheta+m;
-      for (l=0;l<numpointsdomain;l++){
-	for (j=0;j<5;j++){
-	  pointsUM[currentpoint][0][l][j]=bpoint[j];
-	  //Note that, if deltini=0, the base point at the NHIM is included and
-	  //iterated
-	  pointsUM[currentpoint][0][l][j]+=double(l)/double(numpointsdomain)*(deltaend-deltaini)*vu[j]/modvu;
-	}
-      }
-      compute_fiber(&pointsUM[currentpoint],numit,numpointsUfiber[currentpoint],maxnewpoints,numpointsdomain,maxangle,maxdist,1);
+      compute_fiber(bpoint,vu,deltaini,deltaend,&pointsUM[currentpoint],numit,numpointsUfiber[currentpoint],maxnewpoints,numpointsdomain,maxangle,maxdist,1);
       delete[] bpoint;
       gsl_interp_accel_free(thetaaac);
       gsl_interp_accel_free(caac);
@@ -4090,7 +4078,7 @@ void iterate_bundles2(double **thetac,double **fvals,gsl_interp2d **f,double **i
       double *vs1=new double[5];
       double *vs2=new double[5];
       double *vtmp=new double[5];
-      double modvs1,modvs2,modvtmp;
+      double modvs1,modvs2;
       double Pivs1,Pivs2;
 
       bpoint[0]=thetaini+double(m)*(thetaend-thetaini)/double(numpointstheta);
@@ -4124,22 +4112,11 @@ void iterate_bundles2(double **thetac,double **fvals,gsl_interp2d **f,double **i
 	  Pivs1=1.;
 	  Pivs2=0.;
 	}
-	modvtmp=0.;
 	for (j=0;j<5;j++){
 	  vtmp[j]=Pivs1*vs1[j]+Pivs2*vs2[j];
-	  modvtmp+=vtmp[j]*vtmp[j];
 	}
-	modvtmp=sqrt(modvtmp);
 	currentpoint=i*numpointstheta+m;
-	for (l=0;l<numpointsdomain;l++){
-	  for (j=0;j<5;j++){
-	    pointsSM[currentpoint][k][0][l][j]=bpoint[j];
-	    //Note that, if deltini=0, the base point at the NHIM is included and
-	    //iterated
-	    pointsSM[currentpoint][k][0][l][j]+=double(l)/double(numpointsdomain)*(deltaend-deltaini)*vtmp[j]/modvtmp;
-	  }
-	}
-	compute_fiber(&pointsSM[currentpoint][k],numit,numpointsSfiber[currentpoint][k],maxnewpoints,numpointsdomain,maxangle,maxdist,0);
+	compute_fiber(bpoint,vtmp,deltaini,deltaend,&pointsSM[currentpoint][k],numit,numpointsSfiber[currentpoint][k],maxnewpoints,numpointsdomain,maxangle,maxdist,0);
       }
       delete[] bpoint;
       gsl_interp_accel_free(thetaaac);
@@ -5276,7 +5253,7 @@ double cosangle(double *x1,double *x2,double *x3){
   return fabs(sproduct/(modv1*modv2));
 }
 
-void compute_fiber(double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable){
+void compute_fiber(double *bpoint,double *v,double deltaini,double deltaend,double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable){
   int k,l,j,lastindex;
   double thetatmp,ctmp,xtmp,ytmp,wtmp;
   double curdist;
@@ -5294,6 +5271,20 @@ void compute_fiber(double ****pointsIM,int numit, int *numpointsfiber, int *maxn
       domaindeces[j][l]=l;
     }
   }
+  double modv=0;
+  for (j=0;j<5;j++){
+    modv+=pow(v[j],2.);
+  }
+  modv=sqrt(modv);
+  //Note that, if deltini=0, the base point at the NHIM is included and
+  //iterated
+  for (l=0;l<numpointsdomain;l++){
+    for (j=0;j<5;j++){
+      (*pointsIM)[0][l][j]=bpoint[j];
+      (*pointsIM)[0][l][j]+=double(l)/double(numpointsdomain)*(deltaend-deltaini)*v[j]/modv;
+    }
+  }
+
 
   for (k=1;k<numit;k++){
     thetatmp=(*pointsIM)[k-1][0][0];
