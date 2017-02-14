@@ -11,6 +11,12 @@
 #include <gsl/gsl_deriv.h>
 
 
+void multMatrix_array(double *C,double *A, int fA, int cA, double *B,int fB,int cB);
+void multMatrix(double **C,double **A, int fA, int cA, double **B,int fB,int cB);
+void F_DF_eps(double theta, double c,double x, double y, double w, double *Fthetax,double *DF);
+void F_0(double *thetax,double **DF);
+void F_eps(double theta, double c,double x, double y, double w, double *Fthetax);
+void invF_eps(double theta, double c,double x, double y, double w, double *Fthetax);
 void strobomap(double *x,double tf, void (*vfield)(double t, double *x, int ndim, double *dx),int ndim);
 double periodporbit(double v0);
 double period4numderiv( double v0,void *params);
@@ -31,9 +37,16 @@ double melnikov_function(double *zh,double s0);
 void clean_matrix(gsl_matrix *M);
 void uv2tauc(double *uv, double *tau, double *c);
 void tauc2uv(double *uv,double tau, double c);
+void addnewpointsfiber(double **extrapoints,double ***pointsIM,int currentindex,int numpointsfiber, int numnewpoints);
+double cosangle(double *x1,double *x2,double *x3);
+void compute_fiber(double *bpoint,double *v,double deltaini,double deltaend,double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable);
+void resample_segment_IM(double ***extrapoints, double *inipointNB,double *finalpointNB, double *inipointIM, double *finalpointIM,int finaliter,  double maxdist, double maxangle, int *numnewpoints,int maxnewpoints, int stableorunstable);
+void introduce_element(double ***points,int n, int curpoint, double *newpoint);
 
 
 double melnikov_function(double *zh,double s0){
+  //This computes the melnikov function at s0.
+  //Note that (x[2],x[3])=\phi_U(s0;p(theta,c))
 
   double sum,xant,yant,tant;
   int i;
@@ -68,7 +81,8 @@ double melnikov_function(double *zh,double s0){
   ini_rk78(ndim);
   rk78(&t,x,&h,tol,fabs(h),fabs(h),ndim,vfieldunpert);
   //x[4]=omega_h(x[0],x[1],x[2],x[3]);
-  fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+  //fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+  fnew=x[1]*(tF*sin(omega*(t+s0))-tK*(x[0]-x[2]));
   sum=sum+fabs(h)*(fnew-fant)/2.0;
 
   while(xant*xant+yant*yant<x[0]*x[0]+x[1]*x[1]){//We integrate until the trajectory starts approaching Q0
@@ -86,15 +100,17 @@ double melnikov_function(double *zh,double s0){
     }
     sum=sum+fabs(h)*fant;
     rk78(&t,x,&h,tol,fabs(h),fabs(h),ndim,vfieldunpert);
-  //x[4]=omega_h(x[0],x[1],x[2],x[3]);
-    fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    //x[4]=omega_h(x[0],x[1],x[2],x[3]);
+    //fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    fnew=x[1]*(tF*sin(omega*(t+s0))-tK*(x[0]-x[2]));
     sum=sum+fabs(h)*(fnew-fant)/2.;
   }
   while(xant*xant+yant*yant>=x[0]*x[0]+x[1]*x[1]){//We integrate until we leave a neighbourhood of Q0
     xant=x[0];
     yant=x[1];
     tant=t;
-    fant=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    //fant=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    fant=x[1]*(tF*sin(omega*(t+s0))-tK*(x[0]-x[2]));
     if (plotit){
       cout<<"2 "<<t<<" ";
       for (i=0;i<5;i++){
@@ -105,7 +121,8 @@ double melnikov_function(double *zh,double s0){
     sum=sum+fabs(h)*fant;
     rk78(&t,x,&h,tol,fabs(h),fabs(h),ndim,vfieldunpert);
   //x[4]=omega_h(x[0],x[1],x[2],x[3]);
-    fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    //fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    fnew=x[1]*(tF*sin(omega*(t+s0))-tK*(x[0]-x[2]));
     sum=sum+fabs(h)*(fnew-fant)/2.;
   }
 
@@ -119,7 +136,8 @@ double melnikov_function(double *zh,double s0){
   x[4]=zh[4];
   xant=x[0];
   yant=x[1];
-  fant=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+  //fant=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+  fant=x[1]*(tF*sin(omega*(t+s0))-tK*(x[0]-x[2]));
   if (plotit){
     cout<<"2 "<<t<<" ";
     for (i=0;i<5;i++){
@@ -130,14 +148,16 @@ double melnikov_function(double *zh,double s0){
   sum=sum+fabs(h)*fant;
   rk78(&t,x,&h,tol,fabs(h),fabs(h),ndim,vfieldunpert);
   //x[4]=omega_h(x[0],x[1],x[2],x[3]);
-  fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+  //fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+  fnew=x[1]*(tF*sin(omega*(t+s0))-tK*(x[0]-x[2]));
   sum=sum+fabs(h)*(fnew-fant)/2.0;
 
   while(xant*xant+yant*yant<x[0]*x[0]+x[1]*x[1]){//We integrate until the trajectory starts approaching Q0
     xant=x[0];
     yant=x[1];
     tant=t;
-    fant=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    //fant=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    fant=x[1]*(tF*sin(omega*(t+s0))-tK*(x[0]-x[2]));
     if(plotit){
     cout<<"2 "<<t<<" ";
       for (i=0;i<5;i++){
@@ -147,15 +167,17 @@ double melnikov_function(double *zh,double s0){
     }
     sum=sum+fabs(h)*fant;
     rk78(&t,x,&h,tol,fabs(h),fabs(h),ndim,vfieldunpert);
-  //x[4]=omega_h(x[0],x[1],x[2],x[3]);
-    fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    //x[4]=omega_h(x[0],x[1],x[2],x[3]);
+    //fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    fnew=x[1]*(tF*sin(omega*(t+s0))-tK*(x[0]-x[2]));
     sum=sum+fabs(h)*(fnew-fant)/2.;
   }
   while(xant*xant+yant*yant>=x[0]*x[0]+x[1]*x[1]){//We integrate until we leave a neighbourhood of Q0
     xant=x[0];
     yant=x[1];
     tant=t;
-    fant=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    //fant=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    fant=x[1]*(tF*sin(omega*(t+s0))-tK*(x[0]-x[2]));
     if (plotit){
       cout<<"2 "<<t<<" ";
       for (i=0;i<5;i++){
@@ -165,8 +187,9 @@ double melnikov_function(double *zh,double s0){
     }
     sum=sum+fabs(h)*fant;
     rk78(&t,x,&h,tol,fabs(h),fabs(h),ndim,vfieldunpert);
-  //x[4]=omega_h(x[0],x[1],x[2],x[3]);
-    fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    //x[4]=omega_h(x[0],x[1],x[2],x[3]);
+    //fnew=x[1]*(tXi*x[4]+tF*sin(omega*(t+s0)));
+    fnew=x[1]*(tF*sin(omega*(t+s0))-tK*(x[0]-x[2]));
     sum=sum+fabs(h)*(fnew-fant)/2.;
   }
   end_rk78(ndim);
@@ -855,3 +878,798 @@ void tauc2uv(double *uv,double tau, double c){
 
   delete[] duv;
 }
+
+void compute_fiber(double *bpoint,double *v,double deltaini,double deltaend,double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable){
+  //This function computes the stable/unstable leaf of the first numit
+  //backards/forwards iterates of the base point given in bpoint.
+  //The vector v gives the stable/unstable direction in the normal
+  //bundle. Then we take numpointsdomain points in the direction of v at distance
+  //between deltaini and deltaend. If deltaini=0 then the base point
+  //will be part of the leaf.
+  //These points are iterated numit times, and stored in pointsIM. At
+  //each iteration, the obtained fiber is expanded so it becomes a
+  //better approximation of the global fiber of the corresponding
+  //iterated point by the inner dynamics.
+  //At each iteration, some points are split dramatically. Hence a
+  //resampling is needed to generate more points in the empty pieces.
+  //This is done by imposing:
+  //1) consecutive points are separated below maxdist
+  //2) three consecutive points form an angle below maxangle
+  //Finally, if stableorunstable=0, the stable leaf is computed
+  //(backwards iterates), while if =1, then the unstable one is
+  //computed by performing forward iterates.
+  int k,l,j,lastindex;
+  double thetatmp,ctmp,xtmp,ytmp,wtmp;
+  double curdist;
+  bool angleok;
+  double *nextpoint=new double[5];
+  double **extrapoints;
+  double *Fthetax=new double[5];
+  int numnewpoints;
+  //This contains the indeces in pointsIM where the main domain points
+  //are stored.
+  int **domaindeces=new int*[numit];
+  for (j=0;j<numit;j++){
+    domaindeces[j]=new int[numpointsdomain];
+    for (l=0;l<numpointsdomain;l++){
+      domaindeces[j][l]=l;
+    }
+  }
+  double modv=0;
+  for (j=0;j<5;j++){
+    modv+=pow(v[j],2.);
+  }
+  modv=sqrt(modv);
+  //Note that, if deltini=0, the base point at the NHIM is included and
+  //iterated
+  for (l=0;l<numpointsdomain;l++){
+    for (j=0;j<5;j++){
+      (*pointsIM)[0][l][j]=bpoint[j];
+      (*pointsIM)[0][l][j]+=double(l)/double(numpointsdomain)*(deltaend-deltaini)*v[j]/modv;
+    }
+  }
+
+
+  for (k=1;k<numit;k++){
+    thetatmp=(*pointsIM)[k-1][0][0];
+    ctmp=(*pointsIM)[k-1][0][1];
+    xtmp=(*pointsIM)[k-1][0][2];
+    ytmp=(*pointsIM)[k-1][0][3];
+    wtmp=(*pointsIM)[k-1][0][4];
+    if (stableorunstable==0){
+      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,Fthetax);
+    }
+    if (stableorunstable==1){ 
+      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,Fthetax);
+    }
+    (*pointsIM)[k][0][0]=Fthetax[0];
+    (*pointsIM)[k][0][1]=Fthetax[1];
+    (*pointsIM)[k][0][2]=Fthetax[2];
+    (*pointsIM)[k][0][3]=Fthetax[3];
+    (*pointsIM)[k][0][4]=Fthetax[4];
+    domaindeces[k][0]=0;
+    thetatmp=(*pointsIM)[k-1][domaindeces[k-1][1]][0];
+    ctmp=(*pointsIM)[k-1][domaindeces[k-1][1]][1];
+    xtmp=(*pointsIM)[k-1][domaindeces[k-1][1]][2];
+    ytmp=(*pointsIM)[k-1][domaindeces[k-1][1]][3];
+    wtmp=(*pointsIM)[k-1][domaindeces[k-1][1]][4];
+    if (stableorunstable==0){
+      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
+    }
+    if (stableorunstable==1){ 
+      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
+    }
+    for (l=1;l<numpointsdomain;l++){
+      lastindex=domaindeces[k][l-1];
+      for (j=0;j<5;j++){
+	(*pointsIM)[k][lastindex+1][j]=nextpoint[j];
+      }
+      //We check the distance:
+      curdist=0;
+      //Careful, distance is taken into account only in the x-y-w space, not
+      //in inner coordinates
+      for (j=2;j<5;j++){
+	curdist+=pow((*pointsIM)[k][lastindex+1][j]-(*pointsIM)[k][lastindex][j],2.);
+      }
+      curdist=sqrt(curdist);
+      //We check the angle.
+      if (l<numpointsdomain-1){
+	// compute next iterate to check the angle
+	thetatmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][0];
+	ctmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][1];
+	xtmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][2];
+	ytmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][3];
+	wtmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][4];
+	if (stableorunstable==0){//Stable manifold
+	  invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
+	}
+	if (stableorunstable==1){//Unstable manifold 
+	  F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
+	}
+	if (cosangle((*pointsIM)[k][lastindex],(*pointsIM)[k][lastindex+1],nextpoint)<cos(maxangle)){
+	  angleok=false;
+	}
+	else {
+	  angleok=true;
+	}
+      }
+      else {
+	angleok=true;
+      }
+      numnewpoints=2;
+      if ((curdist>=maxdist || !angleok) && maxnewpoints[k]>0){
+	resample_segment_IM(&extrapoints,(*pointsIM)[0][l-1],(*pointsIM)[0][l],(*pointsIM)[k][lastindex],(*pointsIM)[k][lastindex+1],k,maxdist,maxangle,&numnewpoints,maxnewpoints[k],stableorunstable);
+	//Now we add the points in extrapoints into
+	//pointsIM:
+	addnewpointsfiber(extrapoints,&(*pointsIM)[k],lastindex,numpointsfiber[k],numnewpoints);
+	numpointsfiber[k]+=numnewpoints-2;
+	for (j=0;j<numnewpoints;j++){
+	  delete[] extrapoints[j];
+	}
+	delete[] extrapoints;
+      }
+      domaindeces[k][l]=lastindex+1+numnewpoints-2;
+    }
+  }
+  delete[] nextpoint;
+  delete[] Fthetax;
+  for (j=0;j<numit;j++){
+    delete[] domaindeces[j];
+  }
+  delete[] domaindeces;
+}
+
+void resample_segment_IM(double ***extrapoints, double *inipointNB,double *finalpointNB, double *inipointIM, double *finalpointIM,int finaliter,  double maxdist, double maxangle, int *numnewpoints,int maxnewpoints, int stableorunstable){
+  //This resamples the stable/unstable Invariant Manifolds between two given
+  //points whose distance in the x-y-w space is larger than a tolerance or the
+  //angle between three consecutive points is larger than maxangle (in radians).
+  //We assume:
+  //- hdeltaNM: this is the distance between the two corresponding points at the normal bundle
+  //- v is the direction we are using at the normal bundle. v is
+  //normalized!!! 
+  //- stableorunstable=0 for stable manifold, 1 for the unstable one.
+  //To simplify the algorithm, extrapoints includes both inipointIM
+  //and finalpointIM in the first and last position.
+  double mincosangle=cos(maxangle);//The normalized scalar product must be above this value.
+  double curcosangle;
+
+  int i,j,curextrapoint;
+  double distprev,distnext;//Distances between the current new point and the previous and next one.
+  double thetatmp,ctmp,xtmp,ytmp,wtmp;
+  double **basepoints;
+  double *newpoint=new double[5];
+  *numnewpoints=2;
+  (*extrapoints)=new double*[*numnewpoints];
+  basepoints=new double*[*numnewpoints];
+  for (i=0;i<*numnewpoints;i++){
+    (*extrapoints)[i]=new double[5];
+    basepoints[i]=new double[5];
+  }
+  for (i=0;i<5;i++){
+    (*extrapoints)[0][i]=inipointIM[i];
+    (*extrapoints)[1][i]=finalpointIM[i];
+    basepoints[0][i]=inipointNB[i];
+    basepoints[1][i]=finalpointNB[i];
+  }
+  //We assume current distance>maxist, so we start allocating memory
+  //for one extra point (the middle one).
+  curextrapoint=0;
+  for (j=0;j<5;j++){
+    newpoint[j]=basepoints[0][j]/2.+basepoints[1][j]/2.;
+  }
+  introduce_element(extrapoints,*numnewpoints,curextrapoint,newpoint);
+  introduce_element(&basepoints,*numnewpoints,curextrapoint,newpoint);
+  *numnewpoints=3;
+  curextrapoint++;
+  thetatmp=(*extrapoints)[curextrapoint][0];
+  ctmp=(*extrapoints)[curextrapoint][1];
+  xtmp=(*extrapoints)[curextrapoint][2];
+  ytmp=(*extrapoints)[curextrapoint][3];
+  wtmp=(*extrapoints)[curextrapoint][4];
+  for (i=0;i<finaliter;i++){
+    if (stableorunstable==0){//Stable Manifold
+      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
+    }
+    if (stableorunstable==1){//Unstable Manifold
+      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
+    }
+    thetatmp=(*extrapoints)[curextrapoint][0];
+    ctmp=(*extrapoints)[curextrapoint][1];
+    xtmp=(*extrapoints)[curextrapoint][2];
+    ytmp=(*extrapoints)[curextrapoint][3];
+    wtmp=(*extrapoints)[curextrapoint][4];
+  }
+  distprev=0;
+  distnext=0;
+  for (i=2;i<5;i++){
+    distprev+=pow((*extrapoints)[curextrapoint-1][i]-(*extrapoints)[curextrapoint][i],2.);
+    distnext+=pow((*extrapoints)[curextrapoint+1][i]-(*extrapoints)[curextrapoint][i],2.);
+  }
+  distprev=sqrt(distprev);
+  distnext=sqrt(distnext);
+  curcosangle=cosangle((*extrapoints)[curextrapoint-1],(*extrapoints)[curextrapoint], (*extrapoints)[curextrapoint+1]);
+  if (distprev>=maxdist || distnext>=maxdist || curcosangle<mincosangle ){//We add a new extra point
+    if (distprev>=maxdist || curcosangle<mincosangle  ){//Point will be added previous to the current one.
+      curextrapoint+=-1;
+    }
+    for (j=0;j<5;j++){
+      newpoint[j]=basepoints[curextrapoint][j]/2.+basepoints[curextrapoint+1][j]/2.;
+    }
+  }
+  else {//Both distances to the next and previous points are below maxdist. So we are done because this is the first point addition.
+    curextrapoint++;//This should avoid entering the next loop
+  }
+  while (curextrapoint<*numnewpoints-1 && *numnewpoints-2 <maxnewpoints){
+    introduce_element(extrapoints,*numnewpoints,curextrapoint,newpoint);
+    introduce_element(&basepoints,*numnewpoints,curextrapoint,newpoint);
+    *numnewpoints=*numnewpoints+1;
+    curextrapoint++;
+    thetatmp=(*extrapoints)[curextrapoint][0];
+    ctmp=(*extrapoints)[curextrapoint][1];
+    xtmp=(*extrapoints)[curextrapoint][2];
+    ytmp=(*extrapoints)[curextrapoint][3];
+    wtmp=(*extrapoints)[curextrapoint][4];
+    for (i=0;i<finaliter;i++){
+      if (stableorunstable==0){//Stable Manifold
+	invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
+      }
+      if (stableorunstable==1){//Unstable Manifold
+	F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
+      }
+      thetatmp=(*extrapoints)[curextrapoint][0];
+      ctmp=(*extrapoints)[curextrapoint][1];
+      xtmp=(*extrapoints)[curextrapoint][2];
+      ytmp=(*extrapoints)[curextrapoint][3];
+      wtmp=(*extrapoints)[curextrapoint][4];
+    }
+    distprev=0;
+    distnext=0;
+    for (i=2;i<5;i++){
+      distprev+=pow((*extrapoints)[curextrapoint-1][i]-(*extrapoints)[curextrapoint][i],2.);
+      distnext+=pow((*extrapoints)[curextrapoint+1][i]-(*extrapoints)[curextrapoint][i],2.);
+    }
+    distprev=sqrt(distprev);
+    distnext=sqrt(distnext);
+    curcosangle=cosangle((*extrapoints)[curextrapoint-1],(*extrapoints)[curextrapoint], (*extrapoints)[curextrapoint+1]);
+    if (distprev>=maxdist || distnext>=maxdist || curcosangle<mincosangle){//We add a new extra point
+      if (distprev>=maxdist){//Point will be added previous to the current one.
+	curextrapoint+=-1;
+      }
+      for (j=0;j<5;j++){
+	newpoint[j]=basepoints[curextrapoint][j]/2.+basepoints[curextrapoint+1][j]/2.;
+      }
+    }
+    else {//Both distances to the next and previous points are below maxdist and the angle is below the maximum. So we move on until we find some distance above the threshold.
+      while (distnext<maxdist && curcosangle>=mincosangle && curextrapoint<*numnewpoints-2){
+	curextrapoint++;
+	distnext=0.;
+	for (j=2;j<5;j++){
+	  distnext+=pow((*extrapoints)[curextrapoint][j]-(*extrapoints)[curextrapoint+1][j],2.);
+	}
+	distnext=sqrt(distnext);
+	curcosangle=cosangle((*extrapoints)[curextrapoint-1],(*extrapoints)[curextrapoint], (*extrapoints)[curextrapoint+1]);
+      }
+      if (distnext>=maxdist || curcosangle<mincosangle){//We stopped because we found two points that need resampling
+	for (j=0;j<5;j++){
+	  newpoint[j]=basepoints[curextrapoint][j]/2.+basepoints[curextrapoint+1][j]/2.;
+	}
+      }
+      else {//We stopped because we finished checking all points and all are below maxdist.
+	curextrapoint++;
+      }
+    }
+  }
+  //*numnewpoints=*numnewpoints-1;
+  delete[] newpoint;
+  for (i=0;i<*numnewpoints;i++){
+    delete [] basepoints[i];
+  }
+  delete [] basepoints;
+}
+
+void introduce_element(double ***points,int n, int curpoint, double *newpoint){
+  //Given n points, this adds newpoint between curpoint and curpoint+1.
+  double **pointsaux=new double*[n];
+  int i,j;
+  int ndim=5;
+
+  for (i=0;i<n;i++){
+    pointsaux[i]=new double[ndim];
+    for (j=0;j<ndim;j++){
+      pointsaux[i][j]=(*points)[i][j];
+    }
+    delete []  (*points)[i];
+  }
+  delete [] *points;
+  (*points)=new double*[n+1];
+  for(i=0;i<=curpoint;i++){
+    (*points)[i]=new double[ndim];
+    for (j=0;j<ndim;j++){
+      (*points)[i][j]=pointsaux[i][j];
+    }
+    delete [] pointsaux[i];
+  }
+  (*points)[curpoint+1]=new double[ndim];
+  for (j=0;j<ndim;j++){
+    (*points)[curpoint+1][j]=newpoint[j];
+  }
+  for (i=curpoint+1;i<n;i++){
+    (*points)[i+1]=new double[ndim];
+    for (j=0;j<ndim;j++){
+      (*points)[i+1][j]=pointsaux[i][j];
+    }
+    delete[] pointsaux[i];
+  }
+  delete [] pointsaux;
+}
+
+void addnewpointsfiber(double **extrapoints,double ***pointsIM,int currentindex,int numpointsfiber, int numnewpoints){
+  //This will add the points contained in extrapoints to the array
+  //pointsIM. The total size of pointsIM is numpointsfiber, and will
+  //be increased in numnewpoints-2 points. Note that the first and
+  //last points in numnewpoints are already contained in
+  //pointsIM[currentindex] and pointsIM[currentindex+1], respectively.
+  //The rest of points from currentindex+numnewpoints to
+  //numpointsfiber+numnewpoints are set to 0 because nothing important
+  //is supposed to be ther at this point.
+  int i,j;
+  double **auxpoints=new double*[currentindex];
+  for (i=0;i<currentindex;i++){
+    auxpoints[i]=new double[5];
+    for (j=0;j<5;j++){
+    auxpoints[i][j]=(*pointsIM)[i][j];
+    }
+    delete [] (*pointsIM)[i];
+  }
+  for (i=currentindex;i<numpointsfiber;i++){
+    delete[] (*pointsIM)[i];
+  }
+  delete[] (*pointsIM);
+
+  (*pointsIM)=new double*[numpointsfiber+numnewpoints-2];//First and last points in extrapoints are already included in pointsIM
+  for (i=0;i<currentindex;i++){
+    (*pointsIM)[i]=new double[5];
+    for (j=0;j<5;j++){
+      (*pointsIM)[i][j]=auxpoints[i][j];
+    }
+    delete [] auxpoints[i];
+  }
+  delete[] auxpoints;
+  for (i=0;i<numnewpoints;i++){
+    (*pointsIM)[currentindex+i]=new double[5];
+    for (j=0;j<5;j++){
+      (*pointsIM)[currentindex+i][j]=extrapoints[i][j];
+    }
+    if (i>0){
+      if (extrapoints[i][2]==extrapoints[i-1][2]){
+	cout<<"Oju cagada: "<<extrapoints[i-1][2]<<" "<<extrapoints[i][2]<<endl;
+      }
+    }
+  }
+  for (i=currentindex+numnewpoints;i<numpointsfiber+numnewpoints-2;i++){
+    (*pointsIM)[i]=new double[5];
+    for (j=0;j<5;j++){
+      (*pointsIM)[i][j]=0.;
+    }
+  }
+}
+
+double cosangle(double *x1,double *x2,double *x3){
+  //This returns the cosinus of the angle between the vectores defined by these
+  //3 points. We only take into account coordinates x and y.
+  double modv1=0;
+  double modv2=0;
+  double sproduct=0;
+  int i;
+  for (i=2;i<4;i++){
+    modv1+=pow(x2[i]-x1[i],2.);
+    modv2+=pow(x3[i]-x2[i],2.);
+    sproduct+=(x2[i]-x1[i])*(x3[i]-x2[i]);
+  }
+  modv1=sqrt(modv1);
+  modv2=sqrt(modv2);
+  return fabs(sproduct/(modv1*modv2));
+}
+
+void F_eps(double theta, double c,double x, double y, double w, double *Fthetax){
+  //This returns the value of F at thetax
+  
+  double alpha=periodporbit(sqrt(2.*c));
+  double *uv=new double[6];
+  double *z=new double[5];
+  double h,t;
+  int ndim=5;
+
+  tauc2uv(uv,theta,c);
+  
+  h=hini;
+  t=0.;
+  z[0]=x;
+  z[1]=y;
+  z[2]=uv[0];
+  z[3]=uv[1];
+  z[4]=w;
+  //cout <<w;
+  ini_rk78(ndim);
+  while (t<2.*pi/omega){
+    rk78(&t,z,&h,tol,hmin,hmax,ndim,vfieldpert);
+  }
+  h=-(t-2.*pi/omega);
+  rk78(&t,z,&h,tol,fabs(h),fabs(h),ndim,vfieldpert);
+  end_rk78(ndim);
+
+  uv[0]=z[2];
+  uv[1]=z[3];
+  uv2tauc(uv,&Fthetax[0],&Fthetax[1]);
+  //Careful, I think Fthetax[0] may be discontinuous if computed that
+  //way....
+  Fthetax[2]=z[0];
+  Fthetax[3]=z[1];
+  Fthetax[4]=z[4];
+  //cout<<" "<<z[4]<<endl;
+
+  delete[] uv;
+  delete[] z;
+}
+
+void F_DF_eps(double theta, double c,double x, double y, double w, double *Fthetax,double *DF){
+  //This returns the value of F and DF at thetax
+  //This is aparently giving some troubles when computing DF[12-13] and DF[22-23]....
+  //In addition, this function could be improved following the style
+  //of ini_functions2
+  
+  double alpha=periodporbit(sqrt(2.*c));
+  double *uv=new double[6];
+  double *z=new double[30];
+  double h,t;
+  int i,j;
+  double **aux1=new double*[5];
+  double **aux2=new double*[5];
+  double **aux3=new double*[5];
+  for (i=0;i<5;i++){
+    aux1[i]=new double[5];
+    aux2[i]=new double[5];
+    aux3[i]=new double[5];
+  }
+  int ndim=30;
+
+  tauc2uv(uv,theta,c);
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      aux1[i][j]=0.;
+    }
+  }
+  aux1[0][2]=1.;
+  aux1[1][3]=1.;
+  aux1[2][0]=uv[2];
+  aux1[2][1]=uv[3];
+  aux1[3][0]=uv[4];
+  aux1[3][1]=uv[5];
+  aux1[4][4]=1.;
+  
+  h=hini;
+  t=0.;
+  z[0]=x;
+  z[1]=y;
+  z[2]=uv[0];
+  z[3]=uv[1];
+  z[4]=w;
+  for (i=5;i<30;i++){
+    z[i]=0.;
+  }
+  z[5]=1.;
+  z[11]=1.;
+  z[17]=1.;
+  z[23]=1.;
+  z[29]=1.;
+
+  ini_rk78(ndim);
+  h=hmin;
+  while (t<2.*pi/omega){
+    rk78(&t,z,&h,tol,hmin,hmax,ndim,vfieldpertvar);
+  }
+  h=-(t-2.*pi/omega);
+  rk78(&t,z,&h,tol,fabs(h),fabs(h),ndim,vfieldpertvar);
+  end_rk78(ndim);
+
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      aux3[i][j]=z[5+i*5+j];
+    }
+  }
+  multMatrix(aux2,aux3,5,5,aux1,5,5);
+
+  uv[0]=z[2];
+  uv[1]=z[3];
+  uv2tauc(uv,&Fthetax[0],&Fthetax[1]);
+  //Careful, I think Fthetax[0] may be discontinuous if computed that
+  //way....
+  Fthetax[2]=z[0];
+  Fthetax[3]=z[1];
+  Fthetax[4]=z[4];
+
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      aux1[i][j]=0;
+    }
+  }
+  aux1[0][2]=uv[2];
+  aux1[0][3]=uv[3];
+  aux1[1][2]=uv[4];
+  aux1[1][3]=uv[5];
+  aux1[2][0]=1.;
+  aux1[3][1]=1.;
+  aux1[4][4]=1.;
+  multMatrix(aux3,aux1,5,5,aux2,5,5);
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      DF[5*i+j]=aux3[i][j];
+    }
+  }
+
+  delete[] uv;
+  delete[] z;
+  for (i=0;i<5;i++){
+    delete[] aux1[i];
+    delete[] aux2[i];
+    delete[] aux3[i];
+  }
+  delete[] aux1;
+  delete[] aux2;
+  delete[] aux3;
+}
+
+
+void F_0(double *thetax,double **DF){
+  //Coordinates in thetax:
+  //thetax= (tau,c,x,y,w)
+
+  int i,j,Maxiter=200;
+  double *z=new double[30];
+  double *uv=new double[6];
+  double **Duv=new double*[2];
+  double **aux1=new double*[5];
+  double **aux2=new double*[5];
+  for (i=0;i<5;i++){
+    aux1[i]=new double [5];
+    aux2[i]=new double [5];
+  }
+  Duv[0]=new double[2];
+  Duv[1]=new double[2];
+  int ndim=2;
+  double alpha,t=0;
+  double h=hini;
+  double Newtol=1e-12;
+  double *duv=new double[6];
+  double det;
+  double uprev;
+  double theta,c;
+
+  //Chage of variables: tau,c->u,v and D_{tau,c}uv
+  uv[0]=0;
+  uv[1]=sqrt(2.*thetax[1]);
+  uv[2]=1.;
+  uv[3]=0;
+  uv[4]=0;
+  uv[5]=1.;
+  ndim=2;
+  alpha=periodporbit(uv[1]);
+  tauc2uv(uv,thetax[0],thetax[1]);
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      aux1[i][j]=0.;
+    }
+  }
+  aux1[0][2]=1.;
+  aux1[1][3]=1.;
+  aux1[2][0]=uv[2];
+  aux1[2][1]=uv[3];
+  aux1[3][0]=uv[4];
+  aux1[3][1]=uv[5];
+  aux1[4][4]=1.;
+  /*
+  cout<<endl<<"Dphi(tau,c,x,y,w):"<<endl;
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      cout<<left<<setw(12)<<aux1[i][j]<<" ";
+    }
+    cout<<endl;
+  }
+  */
+  //We now compute the image of the stroboscopic map using the
+  //original coordinates
+  z[0]=thetax[2];
+  z[1]=thetax[3];
+  z[2]=uv[0];
+  z[3]=uv[1];
+  z[4]=thetax[4];
+  for (i=5;i<30;i++){
+    z[i]=0;
+  }
+  z[5]=1.;
+  z[11]=1.;
+  z[17]=1.;
+  z[23]=1.;
+  z[29]=1.;
+  ndim=30;
+  t=0;
+  h=hini;
+  ini_rk78(ndim);
+  while (t<2.*pi/omega){
+    rk78(&t,z,&h,tol,hmin,hmax,ndim,vfieldunpertvar);
+  }
+  h=-(t-2.*pi/omega);
+  rk78(&t,z,&h,tol,fabs(h),fabs(h),ndim,vfieldunpertvar);
+  end_rk78(ndim);
+
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      DF[i][j]=z[5+i*5+j];
+    }
+  }
+  /*
+  cout<<endl<<"Ds_0(z):"<<endl;
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      cout<<left<<setw(10)<<DF[i][j]<<" ";
+    }
+    cout<<endl;
+  }
+  */
+
+  multMatrix(aux2,DF,5,5,aux1,5,5);
+  /*
+  cout<<endl<<"Ds_0*Dphi:"<<endl;
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      cout<<left<<setw(10)<<aux2[i][j]<<" ";
+    }
+    cout<<endl;
+  }
+  */
+
+  //We now change variables x,y,u,v,w -> tau,c,x,y,w
+  uv[0]=z[2];
+  uv[1]=z[3];
+  uv[2]=1.;
+  uv[3]=uv[4]=0;
+  uv[5]=1.;
+  theta=thetax[0];
+  c=thetax[1];
+  uv2tauc(uv,&thetax[0],&thetax[1]);
+  //To make thetax[0] continuous (for future interpolation) we better
+  //use what we know about f for eps=0: (we still need the previous
+  //line for the differential)
+  thetax[0]=theta+2.*pi/(omega*alpha);
+  thetax[1]=c;
+  //We have now the value of F_0:
+  thetax[2]=z[0];
+  thetax[3]=z[1];
+  thetax[4]=z[4];
+  /*
+  cout <<endl<<"Value of F_0:"<<endl;
+  for (i=0;i<5;i++){
+    cout <<thetax[i]<<" ";
+  }
+  cout <<endl;
+  */
+
+  //From uv2tauc we also have the differential of tau-c wr2 u-v
+
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      aux1[i][j]=0;
+    }
+  }
+  aux1[0][2]=uv[2];
+  aux1[0][3]=uv[3];
+  aux1[1][2]=uv[4];
+  aux1[1][3]=uv[5];
+  aux1[2][0]=1.;
+  aux1[3][1]=1.;
+  aux1[4][4]=1.;
+  /*
+  cout<<endl<<"Dphi^{-1}(x,y,u,v,w):"<<endl;
+  for (i=0;i<5;i++){
+    for (j=0;j<5;j++){
+      cout<<left<<setw(10)<<aux1[i][j]<<" ";
+    }
+    cout<<endl;
+  }
+  */
+  multMatrix(DF,aux1,5,5,aux2,5,5);
+
+  for (i=0;i<5;i++){
+   delete[] aux1[i];
+   delete[] aux2[i];
+  }
+  delete[] aux1;
+  delete[] aux2;
+  delete [] Duv[0];
+  delete[] Duv[1];
+  delete[] Duv;
+  delete [] z;
+  delete[] duv;
+  delete [] uv;
+}
+
+void invF_eps(double theta, double c,double x, double y, double w, double *Fthetax){
+  //This returns the value of F^{-1} at thetax
+  
+  double alpha=periodporbit(sqrt(2.*c));
+  double *uv=new double[6];
+  double *z=new double[5];
+  double h,t;
+  int ndim=5;
+
+  tauc2uv(uv,theta,c);
+  
+  h=-hini;
+  t=0.;
+  z[0]=x;
+  z[1]=y;
+  z[2]=uv[0];
+  z[3]=uv[1];
+  z[4]=w;
+  //cout <<w;
+  ini_rk78(ndim);
+  while (t>-2.*pi/omega){
+    rk78(&t,z,&h,tol,hmin,hmax,ndim,vfieldpert);
+  }
+  h=-(t+2.*pi/omega);
+  rk78(&t,z,&h,tol,fabs(h),fabs(h),ndim,vfieldpert);
+  end_rk78(ndim);
+
+  uv[0]=z[2];
+  uv[1]=z[3];
+  uv2tauc(uv,&Fthetax[0],&Fthetax[1]);
+  //Careful, I think Fthetax[0] may be discontinuous if computed that
+  //way....
+  Fthetax[2]=z[0];
+  Fthetax[3]=z[1];
+  Fthetax[4]=z[4];
+  //cout<<" "<<z[4]<<endl;
+
+  delete[] uv;
+  delete[] z;
+}
+
+void multMatrix(double **C,double **A, int fA, int cA, double **B,int fB,int cB){
+  int i,j,k;
+  if (cA!=fB){
+    cout<<"Failed multiplying matrices"<<endl;
+    cout<<"Columns A!=Rows B"<<endl;
+    exit(1);
+  }
+
+  for (i=0;i<fA;i++){
+    for (j=0;j<cB;j++){
+      C[i][j]=0.;
+      for (k=0;k<cA;k++){
+	C[i][j]=C[i][j]+A[i][k]*B[k][j];
+      }
+    }
+  }
+}
+
+void multMatrix_array(double *C,double *A, int fA, int cA, double *B,int fB,int cB){
+  //This is to multiply two matrices in array form
+  int i,j,k;
+
+  if (cA!=fB){
+    cout<<"Failed multiplying matrices"<<endl;
+    cout<<"Columns A!=Rows B"<<endl;
+    exit(1);
+  }
+
+  for (i=0;i<fA;i++){
+    for (j=0;j<cB;j++){
+      C[i*cB+j]=0.;
+      for (k=0;k<cA;k++){
+	C[i*cB+j]+=A[i*cA+k]*B[k*cB+j];
+      }
+    }
+  }
+
+}
+
