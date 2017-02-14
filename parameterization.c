@@ -5255,6 +5255,24 @@ double cosangle(double *x1,double *x2,double *x3){
 }
 
 void compute_fiber(double *bpoint,double *v,double deltaini,double deltaend,double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable){
+  //This function computes the stable/unstable leaf of the first numit
+  //backards/forwards iterates of the base point given in bpoint.
+  //The vector v gives the stable/unstable direction in the normal
+  //bundle. Then we take numpointsdomain points in the direction of v at distance
+  //between deltaini and deltaend. If deltaini=0 then the base point
+  //will be part of the leaf.
+  //These points are iterated numit times, and stored in pointsIM. At
+  //each iteration, the obtained fiber is expanded so it becomes a
+  //better approximation of the global fiber of the corresponding
+  //iterated point by the inner dynamics.
+  //At each iteration, some points are split dramatically. Hence a
+  //resampling is needed to generate more points in the empty pieces.
+  //This is done by imposing:
+  //1) consecutive points are separated below maxdist
+  //2) three consecutive points form an angle below maxangle
+  //Finally, if stableorunstable=0, the stable leaf is computed
+  //(backwards iterates), while if =1, then the unstable one is
+  //computed by performing forward iterates.
   int k,l,j,lastindex;
   double thetatmp,ctmp,xtmp,ytmp,wtmp;
   double curdist;
