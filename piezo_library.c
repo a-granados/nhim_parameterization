@@ -10,6 +10,8 @@
 #include <gsl/gsl_fft_halfcomplex.h>
 #include <gsl/gsl_deriv.h>
 
+using namespace std;
+
 
 void multMatrix_array(double *C,double *A, int fA, int cA, double *B,int fB,int cB);
 void multMatrix(double **C,double **A, int fA, int cA, double **B,int fB,int cB);
@@ -37,11 +39,11 @@ double melnikov_function(double *zh,double s0);
 void clean_matrix(gsl_matrix *M);
 void uv2tauc(double *uv, double *tau, double *c);
 void tauc2uv(double *uv,double tau, double c);
-void addnewpointsfiber(double **extrapoints,double ***pointsIM,int currentindex,int numpointsfiber, int numnewpoints);
 double cosangle(double *x1,double *x2,double *x3);
-void compute_fiber(double *bpoint,double *v,double deltaini,double deltaend,double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable);
-void resample_segment_IM(double ***extrapoints, double *inipointNB,double *finalpointNB, double *inipointIM, double *finalpointIM,int finaliter,  double maxdist, double maxangle, int *numnewpoints,int maxnewpoints, int stableorunstable);
-void introduce_element(double ***points,int n, int curpoint, double *newpoint);
+double modulo(double a, double b);
+void write_data_in_file(double *theta,double *c,double **data, int ncols, string filename);
+void write_data_in_file2(double *theta,double *c,double *data, string filename);
+void write_data_in_file3(double **fvals,double **data, int ncols, string filename);
 
 
 double melnikov_function(double *zh,double s0){
@@ -879,381 +881,6 @@ void tauc2uv(double *uv,double tau, double c){
   delete[] duv;
 }
 
-void compute_fiber(double *bpoint,double *v,double deltaini,double deltaend,double ****pointsIM,int numit, int *numpointsfiber, int *maxnewpoints, int numpointsdomain,double maxangle,double maxdist, int stableorunstable){
-  //This function computes the stable/unstable leaf of the first numit
-  //backards/forwards iterates of the base point given in bpoint.
-  //The vector v gives the stable/unstable direction in the normal
-  //bundle. Then we take numpointsdomain points in the direction of v at distance
-  //between deltaini and deltaend. If deltaini=0 then the base point
-  //will be part of the leaf.
-  //These points are iterated numit times, and stored in pointsIM. At
-  //each iteration, the obtained fiber is expanded so it becomes a
-  //better approximation of the global fiber of the corresponding
-  //iterated point by the inner dynamics.
-  //At each iteration, some points are split dramatically. Hence a
-  //resampling is needed to generate more points in the empty pieces.
-  //This is done by imposing:
-  //1) consecutive points are separated below maxdist
-  //2) three consecutive points form an angle below maxangle
-  //Finally, if stableorunstable=0, the stable leaf is computed
-  //(backwards iterates), while if =1, then the unstable one is
-  //computed by performing forward iterates.
-  int k,l,j,lastindex;
-  double thetatmp,ctmp,xtmp,ytmp,wtmp;
-  double curdist;
-  bool angleok;
-  double *nextpoint=new double[5];
-  double **extrapoints;
-  double *Fthetax=new double[5];
-  int numnewpoints;
-  //This contains the indeces in pointsIM where the main domain points
-  //are stored.
-  int **domaindeces=new int*[numit];
-  for (j=0;j<numit;j++){
-    domaindeces[j]=new int[numpointsdomain];
-    for (l=0;l<numpointsdomain;l++){
-      domaindeces[j][l]=l;
-    }
-  }
-  double modv=0;
-  for (j=0;j<5;j++){
-    modv+=pow(v[j],2.);
-  }
-  modv=sqrt(modv);
-  //Note that, if deltini=0, the base point at the NHIM is included and
-  //iterated
-  for (l=0;l<numpointsdomain;l++){
-    for (j=0;j<5;j++){
-      (*pointsIM)[0][l][j]=bpoint[j];
-      (*pointsIM)[0][l][j]+=double(l)/double(numpointsdomain)*(deltaend-deltaini)*v[j]/modv;
-    }
-  }
-
-
-  for (k=1;k<numit;k++){
-    thetatmp=(*pointsIM)[k-1][0][0];
-    ctmp=(*pointsIM)[k-1][0][1];
-    xtmp=(*pointsIM)[k-1][0][2];
-    ytmp=(*pointsIM)[k-1][0][3];
-    wtmp=(*pointsIM)[k-1][0][4];
-    if (stableorunstable==0){
-      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,Fthetax);
-    }
-    if (stableorunstable==1){ 
-      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,Fthetax);
-    }
-    (*pointsIM)[k][0][0]=Fthetax[0];
-    (*pointsIM)[k][0][1]=Fthetax[1];
-    (*pointsIM)[k][0][2]=Fthetax[2];
-    (*pointsIM)[k][0][3]=Fthetax[3];
-    (*pointsIM)[k][0][4]=Fthetax[4];
-    domaindeces[k][0]=0;
-    thetatmp=(*pointsIM)[k-1][domaindeces[k-1][1]][0];
-    ctmp=(*pointsIM)[k-1][domaindeces[k-1][1]][1];
-    xtmp=(*pointsIM)[k-1][domaindeces[k-1][1]][2];
-    ytmp=(*pointsIM)[k-1][domaindeces[k-1][1]][3];
-    wtmp=(*pointsIM)[k-1][domaindeces[k-1][1]][4];
-    if (stableorunstable==0){
-      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
-    }
-    if (stableorunstable==1){ 
-      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
-    }
-    for (l=1;l<numpointsdomain;l++){
-      lastindex=domaindeces[k][l-1];
-      for (j=0;j<5;j++){
-	(*pointsIM)[k][lastindex+1][j]=nextpoint[j];
-      }
-      //We check the distance:
-      curdist=0;
-      //Careful, distance is taken into account only in the x-y-w space, not
-      //in inner coordinates
-      for (j=2;j<5;j++){
-	curdist+=pow((*pointsIM)[k][lastindex+1][j]-(*pointsIM)[k][lastindex][j],2.);
-      }
-      curdist=sqrt(curdist);
-      //We check the angle.
-      if (l<numpointsdomain-1){
-	// compute next iterate to check the angle
-	thetatmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][0];
-	ctmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][1];
-	xtmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][2];
-	ytmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][3];
-	wtmp=(*pointsIM)[k-1][domaindeces[k-1][l+1]][4];
-	if (stableorunstable==0){//Stable manifold
-	  invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
-	}
-	if (stableorunstable==1){//Unstable manifold 
-	  F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,nextpoint);
-	}
-	if (cosangle((*pointsIM)[k][lastindex],(*pointsIM)[k][lastindex+1],nextpoint)<cos(maxangle)){
-	  angleok=false;
-	}
-	else {
-	  angleok=true;
-	}
-      }
-      else {
-	angleok=true;
-      }
-      numnewpoints=2;
-      if ((curdist>=maxdist || !angleok) && maxnewpoints[k]>0){
-	resample_segment_IM(&extrapoints,(*pointsIM)[0][l-1],(*pointsIM)[0][l],(*pointsIM)[k][lastindex],(*pointsIM)[k][lastindex+1],k,maxdist,maxangle,&numnewpoints,maxnewpoints[k],stableorunstable);
-	//Now we add the points in extrapoints into
-	//pointsIM:
-	addnewpointsfiber(extrapoints,&(*pointsIM)[k],lastindex,numpointsfiber[k],numnewpoints);
-	numpointsfiber[k]+=numnewpoints-2;
-	for (j=0;j<numnewpoints;j++){
-	  delete[] extrapoints[j];
-	}
-	delete[] extrapoints;
-      }
-      domaindeces[k][l]=lastindex+1+numnewpoints-2;
-    }
-  }
-  delete[] nextpoint;
-  delete[] Fthetax;
-  for (j=0;j<numit;j++){
-    delete[] domaindeces[j];
-  }
-  delete[] domaindeces;
-}
-
-void resample_segment_IM(double ***extrapoints, double *inipointNB,double *finalpointNB, double *inipointIM, double *finalpointIM,int finaliter,  double maxdist, double maxangle, int *numnewpoints,int maxnewpoints, int stableorunstable){
-  //This resamples the stable/unstable Invariant Manifolds between two given
-  //points whose distance in the x-y-w space is larger than a tolerance or the
-  //angle between three consecutive points is larger than maxangle (in radians).
-  //We assume:
-  //- hdeltaNM: this is the distance between the two corresponding points at the normal bundle
-  //- v is the direction we are using at the normal bundle. v is
-  //normalized!!! 
-  //- stableorunstable=0 for stable manifold, 1 for the unstable one.
-  //To simplify the algorithm, extrapoints includes both inipointIM
-  //and finalpointIM in the first and last position.
-  double mincosangle=cos(maxangle);//The normalized scalar product must be above this value.
-  double curcosangle;
-
-  int i,j,curextrapoint;
-  double distprev,distnext;//Distances between the current new point and the previous and next one.
-  double thetatmp,ctmp,xtmp,ytmp,wtmp;
-  double **basepoints;
-  double *newpoint=new double[5];
-  *numnewpoints=2;
-  (*extrapoints)=new double*[*numnewpoints];
-  basepoints=new double*[*numnewpoints];
-  for (i=0;i<*numnewpoints;i++){
-    (*extrapoints)[i]=new double[5];
-    basepoints[i]=new double[5];
-  }
-  for (i=0;i<5;i++){
-    (*extrapoints)[0][i]=inipointIM[i];
-    (*extrapoints)[1][i]=finalpointIM[i];
-    basepoints[0][i]=inipointNB[i];
-    basepoints[1][i]=finalpointNB[i];
-  }
-  //We assume current distance>maxist, so we start allocating memory
-  //for one extra point (the middle one).
-  curextrapoint=0;
-  for (j=0;j<5;j++){
-    newpoint[j]=basepoints[0][j]/2.+basepoints[1][j]/2.;
-  }
-  introduce_element(extrapoints,*numnewpoints,curextrapoint,newpoint);
-  introduce_element(&basepoints,*numnewpoints,curextrapoint,newpoint);
-  *numnewpoints=3;
-  curextrapoint++;
-  thetatmp=(*extrapoints)[curextrapoint][0];
-  ctmp=(*extrapoints)[curextrapoint][1];
-  xtmp=(*extrapoints)[curextrapoint][2];
-  ytmp=(*extrapoints)[curextrapoint][3];
-  wtmp=(*extrapoints)[curextrapoint][4];
-  for (i=0;i<finaliter;i++){
-    if (stableorunstable==0){//Stable Manifold
-      invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
-    }
-    if (stableorunstable==1){//Unstable Manifold
-      F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
-    }
-    thetatmp=(*extrapoints)[curextrapoint][0];
-    ctmp=(*extrapoints)[curextrapoint][1];
-    xtmp=(*extrapoints)[curextrapoint][2];
-    ytmp=(*extrapoints)[curextrapoint][3];
-    wtmp=(*extrapoints)[curextrapoint][4];
-  }
-  distprev=0;
-  distnext=0;
-  for (i=2;i<5;i++){
-    distprev+=pow((*extrapoints)[curextrapoint-1][i]-(*extrapoints)[curextrapoint][i],2.);
-    distnext+=pow((*extrapoints)[curextrapoint+1][i]-(*extrapoints)[curextrapoint][i],2.);
-  }
-  distprev=sqrt(distprev);
-  distnext=sqrt(distnext);
-  curcosangle=cosangle((*extrapoints)[curextrapoint-1],(*extrapoints)[curextrapoint], (*extrapoints)[curextrapoint+1]);
-  if (distprev>=maxdist || distnext>=maxdist || curcosangle<mincosangle ){//We add a new extra point
-    if (distprev>=maxdist || curcosangle<mincosangle  ){//Point will be added previous to the current one.
-      curextrapoint+=-1;
-    }
-    for (j=0;j<5;j++){
-      newpoint[j]=basepoints[curextrapoint][j]/2.+basepoints[curextrapoint+1][j]/2.;
-    }
-  }
-  else {//Both distances to the next and previous points are below maxdist. So we are done because this is the first point addition.
-    curextrapoint++;//This should avoid entering the next loop
-  }
-  while (curextrapoint<*numnewpoints-1 && *numnewpoints-2 <maxnewpoints){
-    introduce_element(extrapoints,*numnewpoints,curextrapoint,newpoint);
-    introduce_element(&basepoints,*numnewpoints,curextrapoint,newpoint);
-    *numnewpoints=*numnewpoints+1;
-    curextrapoint++;
-    thetatmp=(*extrapoints)[curextrapoint][0];
-    ctmp=(*extrapoints)[curextrapoint][1];
-    xtmp=(*extrapoints)[curextrapoint][2];
-    ytmp=(*extrapoints)[curextrapoint][3];
-    wtmp=(*extrapoints)[curextrapoint][4];
-    for (i=0;i<finaliter;i++){
-      if (stableorunstable==0){//Stable Manifold
-	invF_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
-      }
-      if (stableorunstable==1){//Unstable Manifold
-	F_eps(thetatmp,ctmp,xtmp,ytmp,wtmp,(*extrapoints)[curextrapoint]);
-      }
-      thetatmp=(*extrapoints)[curextrapoint][0];
-      ctmp=(*extrapoints)[curextrapoint][1];
-      xtmp=(*extrapoints)[curextrapoint][2];
-      ytmp=(*extrapoints)[curextrapoint][3];
-      wtmp=(*extrapoints)[curextrapoint][4];
-    }
-    distprev=0;
-    distnext=0;
-    for (i=2;i<5;i++){
-      distprev+=pow((*extrapoints)[curextrapoint-1][i]-(*extrapoints)[curextrapoint][i],2.);
-      distnext+=pow((*extrapoints)[curextrapoint+1][i]-(*extrapoints)[curextrapoint][i],2.);
-    }
-    distprev=sqrt(distprev);
-    distnext=sqrt(distnext);
-    curcosangle=cosangle((*extrapoints)[curextrapoint-1],(*extrapoints)[curextrapoint], (*extrapoints)[curextrapoint+1]);
-    if (distprev>=maxdist || distnext>=maxdist || curcosangle<mincosangle){//We add a new extra point
-      if (distprev>=maxdist){//Point will be added previous to the current one.
-	curextrapoint+=-1;
-      }
-      for (j=0;j<5;j++){
-	newpoint[j]=basepoints[curextrapoint][j]/2.+basepoints[curextrapoint+1][j]/2.;
-      }
-    }
-    else {//Both distances to the next and previous points are below maxdist and the angle is below the maximum. So we move on until we find some distance above the threshold.
-      while (distnext<maxdist && curcosangle>=mincosangle && curextrapoint<*numnewpoints-2){
-	curextrapoint++;
-	distnext=0.;
-	for (j=2;j<5;j++){
-	  distnext+=pow((*extrapoints)[curextrapoint][j]-(*extrapoints)[curextrapoint+1][j],2.);
-	}
-	distnext=sqrt(distnext);
-	curcosangle=cosangle((*extrapoints)[curextrapoint-1],(*extrapoints)[curextrapoint], (*extrapoints)[curextrapoint+1]);
-      }
-      if (distnext>=maxdist || curcosangle<mincosangle){//We stopped because we found two points that need resampling
-	for (j=0;j<5;j++){
-	  newpoint[j]=basepoints[curextrapoint][j]/2.+basepoints[curextrapoint+1][j]/2.;
-	}
-      }
-      else {//We stopped because we finished checking all points and all are below maxdist.
-	curextrapoint++;
-      }
-    }
-  }
-  //*numnewpoints=*numnewpoints-1;
-  delete[] newpoint;
-  for (i=0;i<*numnewpoints;i++){
-    delete [] basepoints[i];
-  }
-  delete [] basepoints;
-}
-
-void introduce_element(double ***points,int n, int curpoint, double *newpoint){
-  //Given n points, this adds newpoint between curpoint and curpoint+1.
-  double **pointsaux=new double*[n];
-  int i,j;
-  int ndim=5;
-
-  for (i=0;i<n;i++){
-    pointsaux[i]=new double[ndim];
-    for (j=0;j<ndim;j++){
-      pointsaux[i][j]=(*points)[i][j];
-    }
-    delete []  (*points)[i];
-  }
-  delete [] *points;
-  (*points)=new double*[n+1];
-  for(i=0;i<=curpoint;i++){
-    (*points)[i]=new double[ndim];
-    for (j=0;j<ndim;j++){
-      (*points)[i][j]=pointsaux[i][j];
-    }
-    delete [] pointsaux[i];
-  }
-  (*points)[curpoint+1]=new double[ndim];
-  for (j=0;j<ndim;j++){
-    (*points)[curpoint+1][j]=newpoint[j];
-  }
-  for (i=curpoint+1;i<n;i++){
-    (*points)[i+1]=new double[ndim];
-    for (j=0;j<ndim;j++){
-      (*points)[i+1][j]=pointsaux[i][j];
-    }
-    delete[] pointsaux[i];
-  }
-  delete [] pointsaux;
-}
-
-void addnewpointsfiber(double **extrapoints,double ***pointsIM,int currentindex,int numpointsfiber, int numnewpoints){
-  //This will add the points contained in extrapoints to the array
-  //pointsIM. The total size of pointsIM is numpointsfiber, and will
-  //be increased in numnewpoints-2 points. Note that the first and
-  //last points in numnewpoints are already contained in
-  //pointsIM[currentindex] and pointsIM[currentindex+1], respectively.
-  //The rest of points from currentindex+numnewpoints to
-  //numpointsfiber+numnewpoints are set to 0 because nothing important
-  //is supposed to be ther at this point.
-  int i,j;
-  double **auxpoints=new double*[currentindex];
-  for (i=0;i<currentindex;i++){
-    auxpoints[i]=new double[5];
-    for (j=0;j<5;j++){
-    auxpoints[i][j]=(*pointsIM)[i][j];
-    }
-    delete [] (*pointsIM)[i];
-  }
-  for (i=currentindex;i<numpointsfiber;i++){
-    delete[] (*pointsIM)[i];
-  }
-  delete[] (*pointsIM);
-
-  (*pointsIM)=new double*[numpointsfiber+numnewpoints-2];//First and last points in extrapoints are already included in pointsIM
-  for (i=0;i<currentindex;i++){
-    (*pointsIM)[i]=new double[5];
-    for (j=0;j<5;j++){
-      (*pointsIM)[i][j]=auxpoints[i][j];
-    }
-    delete [] auxpoints[i];
-  }
-  delete[] auxpoints;
-  for (i=0;i<numnewpoints;i++){
-    (*pointsIM)[currentindex+i]=new double[5];
-    for (j=0;j<5;j++){
-      (*pointsIM)[currentindex+i][j]=extrapoints[i][j];
-    }
-    if (i>0){
-      if (extrapoints[i][2]==extrapoints[i-1][2]){
-	cout<<"Oju cagada: "<<extrapoints[i-1][2]<<" "<<extrapoints[i][2]<<endl;
-      }
-    }
-  }
-  for (i=currentindex+numnewpoints;i<numpointsfiber+numnewpoints-2;i++){
-    (*pointsIM)[i]=new double[5];
-    for (j=0;j<5;j++){
-      (*pointsIM)[i][j]=0.;
-    }
-  }
-}
-
 double cosangle(double *x1,double *x2,double *x3){
   //This returns the cosinus of the angle between the vectores defined by these
   //3 points. We only take into account coordinates x and y.
@@ -1673,3 +1300,93 @@ void multMatrix_array(double *C,double *A, int fA, int cA, double *B,int fB,int 
 
 }
 
+double modulo(double a, double b){
+  double tmp,tmp2;
+  tmp=a;
+  while (tmp<=0){
+    tmp+=b;
+  }
+  tmp2=fmod(tmp,b);
+  if (fabs(tmp2-b)<1e-12){
+    tmp2=0.;
+    //cout <<"oju"<<endl;
+  }
+
+  return tmp2;
+}
+/*
+double modulo(double a, double b){
+  double tmp;
+  double Tol=1e-12;
+  tmp=fmod(a,b);
+  if (a<0){
+    tmp=b+tmp;
+  }
+  if (fabs(tmp-b)<Tol || fabs(tmp)<Tol){
+    tmp=0.;
+  }
+
+  return tmp;
+}
+*/
+
+void write_data_in_file(double *theta, double *c,double **data, int ncols, string filename){
+  int i,j,k;
+  ofstream outfile;
+  std:ostringstream s;
+  s<<filename.c_str()<<"_"<<count<<".tna";
+  filename=s.str();
+  outfile.precision(20);
+  outfile.open(filename.c_str());
+
+  for (i=0;i<Ntheta;i++){
+    for (j=0;j<Nc;j++){
+      outfile<<theta[i]<<" "<<c[j]<<" ";
+      for (k=0;k<ncols;k++){
+	outfile<<data[k][j*Ntheta+i]<<" ";
+      }
+      outfile<<endl;
+    }
+  }
+  outfile.close();
+}
+
+void write_data_in_file2(double *theta,double *c,double *data, string filename){
+  int i,j;
+  ofstream outfile;
+  std:ostringstream s;
+  s<<filename.c_str()<<"_"<<count<<".tna";
+  filename=s.str();
+  outfile.precision(20);
+  outfile.open(filename.c_str());
+
+  for (i=0;i<Ntheta;i++){
+    for (j=0;j<Nc;j++){
+      outfile<<modulo(theta[i],1.)<<" "<<c[j]<<" ";
+      outfile<<data[j*Ntheta+i]<<" ";
+      outfile<<endl;
+    }
+  }
+  outfile.close();
+}
+
+void write_data_in_file3(double **fvals,double **data, int ncols, string filename){
+  int i,j,k;
+  ofstream outfile;
+  std:ostringstream s;
+  s<<filename.c_str()<<"_"<<count<<".tna";
+  filename=s.str();
+  outfile.precision(20);
+  outfile.open(filename.c_str());
+
+  for (i=0;i<Ntheta;i++){
+    for (j=0;j<Nc;j++){
+      outfile<<modulo(fvals[0][j*Ntheta+i],1.)<<" "<<fvals[1][j*Ntheta+i]<<" ";
+      for (k=0;k<ncols;k++){
+	outfile<<data[k][j*Ntheta+i]<<" ";
+      }
+      outfile<<endl;
+    }
+  }
+  outfile.close();
+}

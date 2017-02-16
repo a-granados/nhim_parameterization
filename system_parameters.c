@@ -1,12 +1,6 @@
 //System parameters: they are model-specific
 double tzeta=6e-5;
-//double tzeta=0.;
-//double tzeta=1e-2;
-//double tXi=0.1;
-//double tXi=5e-1;
 double tXi=5e-2;//Piezoelectric auto-coupling (scaling parameter)
-//double tXi=1e-4;
-//double tXi=0;
 double tF=1.;//Amplitud of the forcing (scaling parameter)
 double tk=1.;//Piezoelectric  coupling (scaling parameter)
 double tK=8e-2;//Spring constant (scaling parameter) (Hamiltonian coupling)
